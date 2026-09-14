@@ -329,8 +329,15 @@ async function handleStartDM(ws, data) {
     let existingConversationId = null;
     for (const [convoId, count] of Object.entries(convoCounts)) {
         if (count === 2) {
-            existingConversationId = convoId;
-            break;
+            const { count: totalMembers, error: countError } = await supabase
+                .from('conversation_members')
+                .select('*', { count: 'exact', head: true })
+                .eq('conversation_id', convoId);
+            
+            if (!countError && totalMembers ===2) {
+                existingConversationId = convoId;
+                break;
+            }
         }
     }
 

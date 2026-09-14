@@ -70,11 +70,12 @@ export function handleServerMessage(data) {
 
     case 'conversation_created':
     case 'conversation_joined':
+      console.log('📩 Received from server:', data.type, 'Convo ID:', data.conversationId, 'Members:', data.members);
       addOrUpdateConversation(data.conversationId, {
         members: data.members,
         messages: data.history || [],
       });
-      window.setActiveConversation(data.conversationId);
+      setActiveConversation(data.conversationId);
       break;
 
     case 'member_update':

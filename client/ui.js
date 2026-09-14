@@ -45,6 +45,7 @@ export function renderOnlineUsers(users, onlineUsersSet) {
     
     li.addEventListener('click', () => {
       if (user !== state.username) {
+        console.log('🖱️ Clicked user:', user);
         window.send({ type: 'start_dm', targetUsername: user });
       }
     });
@@ -55,6 +56,8 @@ export function renderOnlineUsers(users, onlineUsersSet) {
 
 export function renderActiveConversation() {
   const id = state.activeConversationId;
+  console.log('🎨 Rendering active conversation, ID:', id);
+  
   if (!id) {
     el.activeTitle.textContent = 'Select a user';
     el.activeMembers.textContent = '';
