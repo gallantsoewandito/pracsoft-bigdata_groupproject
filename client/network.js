@@ -3,11 +3,11 @@ import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConver
 
 let ws = null;
 
-export function connect(username) {
+export function connect(username, password, authType) {
   ws = new WebSocket(`ws://${window.location.host}`);
 
   ws.addEventListener('open', () => {
-    send({ type: 'register', username });
+    send({ type: authType, username, password });
   });
 
   ws.addEventListener('message', (event) => {

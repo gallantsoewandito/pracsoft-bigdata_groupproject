@@ -11,19 +11,36 @@
 </head>
 <body>
 
-  <!-- Login Screen -->
+    <!-- Login Screen -->
   <div id="login-screen" class="is-flex is-justify-content-center is-align-items-center">
     <div class="box login-box">
       <h1 class="title is-4 has-text-centered mb-5">
         <i class="fas fa-comments mr-2"></i>Instant Messaging
       </h1>
+      
       <div class="field">
         <div class="control has-icons-left">
-          <input id="username-input" class="input is-medium" type="text" placeholder="Enter your username" autocomplete="off" />
+          <input id="username-input" class="input is-medium" type="text" placeholder="Username" autocomplete="off" />
           <span class="icon is-small is-left"><i class="fas fa-user"></i></span>
         </div>
       </div>
-      <button id="connect-btn" class="button is-primary is-medium is-fullwidth">Connect</button>
+
+      <div class="field">
+        <div class="control has-icons-left">
+          <input id="password-input" class="input is-medium" type="password" placeholder="Password" />
+          <span class="icon is-small is-left"><i class="fas fa-lock"></i></span>
+        </div>
+        <p class="help is-info is-size-7 mt-1">
+          Must be 8+ characters, include 1 uppercase letter, and 1 number.
+        </p>
+      </div>
+
+      <button id="auth-btn" class="button is-primary is-medium is-fullwidth mb-3">Log In</button>
+      
+      <p class="has-text-centered">
+        <a id="toggle-auth-mode" class="is-size-7" style="cursor: pointer; color: #3273dc;">Need an account? Sign Up</a>
+      </p>
+      
       <p id="login-error" class="help is-danger has-text-centered mt-3"></p>
     </div>
   </div>
@@ -51,10 +68,6 @@
             <span id="active-conversation-title" class="title is-5 mb-0">Select a user</span>
             <span id="active-conversation-members" class="is-size-7 has-text-grey ml-2"></span>
           </div>
-          <button id="leave-conversation-btn" class="button is-danger is-small is-hidden">
-            <span class="icon"><i class="fas fa-sign-out-alt"></i></span>
-            <span>Leave</span>
-          </button>
         </div>
 
         <div id="message-history" class="message-history"></div>

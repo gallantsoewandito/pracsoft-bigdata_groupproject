@@ -8,7 +8,6 @@ export const el = {
   onlineUsersList: document.getElementById('online-users-list'),
   activeTitle: document.getElementById('active-conversation-title'),
   activeMembers: document.getElementById('active-conversation-members'),
-  leaveBtn: document.getElementById('leave-conversation-btn'),
   messageHistory: document.getElementById('message-history'),
   messageForm: document.getElementById('message-input-form'),
   messageInput: document.getElementById('message-input'),
@@ -61,7 +60,6 @@ export function renderActiveConversation() {
   if (!id) {
     el.activeTitle.textContent = 'Select a user';
     el.activeMembers.textContent = '';
-    el.leaveBtn.classList.add('is-hidden');
     el.messageHistory.innerHTML = '<div class="has-text-centered has-text-grey mt-5">Select a user from the sidebar to start messaging</div>';
     return;
   }
@@ -75,7 +73,6 @@ export function renderActiveConversation() {
   }
   
   el.activeMembers.textContent = `Members: ${convo.members.join(', ')}`;
-  el.leaveBtn.classList.remove('is-hidden');
 
   el.messageHistory.innerHTML = '';
   for (const msg of convo.messages) {

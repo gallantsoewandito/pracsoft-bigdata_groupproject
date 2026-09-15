@@ -9,10 +9,10 @@ const {
     sendError,
     broadcastUserList,
     broadcastMemberUpdate,
-    handleRegister,
+    handleSignup,
+    handleLogin,
     handleCreateConversation,
     handleJoinConversation,
-    handleLeaveConversation,
     handleSendMessage,
     handleStartDM,
     handleCreateGroup
@@ -39,17 +39,17 @@ wss.on('connection', (ws) => {
 
         try {
             switch (data.type) {
-                case 'register':
-                    await handleRegister(ws, data);
+                case 'signup':
+                    await handleSignup(ws, data);
+                    break;
+                case 'login':
+                    await handleLogin(ws, data);
                     break;
                 case 'create_conversation':
                     await handleCreateConversation(ws);
                     break;
                 case 'join_conversation':
                     await handleJoinConversation(ws, data);
-                    break;
-                case 'leave_conversation':
-                    handleLeaveConversation(ws, data);
                     break;
                 case 'send_message':
                     await handleSendMessage(ws, data);

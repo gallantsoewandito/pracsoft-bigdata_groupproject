@@ -6,6 +6,42 @@ window.state = state;
 window.send = send;
 window.setActiveConversation = setActiveConversation;
 
+const passwordInput = document.getElementById('password-input');
+const authBtn = document.getElementById('auth-btn');
+const toggleAuthMode = document.getElementById('toggle-auth-mode');
+let isLoginMode = true;
+
+// Toggle between Login and Signup
+toggleAuthMode.addEventListener('click', () => {
+  isLoginMode = !isLoginMode;
+  if (isLoginMode) {
+    authBtn.textContent = 'Log In';
+    toggleAuthMode.textContent = 'Need an account? Sign Up';
+  } else {
+    authBtn.textContent = 'Sign Up';
+    toggleAuthMode.textContent = 'Already have an account? Log In';
+  }
+  renderLoginError('');
+});
+
+// Handle Auth Button Click
+authBtn.addEventListener('click', () => {
+  const username = document.getElementById('username-input').value.trim();
+  const password = passwordInput.value;
+
+  if (!username || !password) {
+    renderLoginError('Please enter both username and password.');
+    return;
+  }
+
+  renderLoginError('');
+  
+  // Send either 'login' or 'signup' based on the current mode
+  const authType = isLoginMode ? 'login' : 'signup';
+  connect(username, password, authType); 
+});
+
+
 document.getElementById('connect-btn').addEventListener('click', () => {
   const username = el.usernameInput.value.trim();
   if (!username) {
@@ -50,14 +86,6 @@ document.getElementById('confirm-group-btn').addEventListener('click', () => {
   
   // Close the modal by removing 'is-active'
   el.groupModal.classList.remove('is-active');
-});
-
-el.leaveBtn.addEventListener('click', () => {
-  const id = state.activeConversationId;
-  if (!id) return;
-  send({ type: 'leave_conversation', conversationId: id });
-  removeConversation(id);
-  renderAll();
 });
 
 el.messageForm.addEventListener('submit', (e) => {

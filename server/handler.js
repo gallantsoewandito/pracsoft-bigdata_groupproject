@@ -1,4 +1,5 @@
 const supabase = require('./db');
+const bcrypt = require('bcrypt')
 
 const clients = new Map();
 const conversations = new Map();
@@ -43,61 +44,104 @@ function requireRegistered(ws) {
     return true;
 }
 
-async function handleRegister(ws, data) {
+async function handleSignup(ws, data) {
     const username = (data.username || '').trim();
-    if (!username) {
-        sendError(ws, 'Username cannot be empty.');
+    const password = data.password;
+
+    if (!username || !password) {
+        sendError(ws, 'Username and password are required.');
         return;
     }
-    if (clients.has(username)) {
-        const oldClient = clients.get(username);
-        send(oldClient.ws, { type: 'error', message: 'You have been logged in from another device.'});
-        oldClient.ws.close();
-        clients.delete(username);
+
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+    
+    if (!passwordRegex.test(password)) {
+        sendError(ws, 'Password must be at least 8 characters long, contain at least one uppercase letter, and at least one number.');
+        return;
     }
 
-    // Check if user exists in Supabase
-    let { data: userData, error: userError } = await supabase
+    const { data: existingUser } = await supabase
         .from('users')
         .select('id')
         .eq('username', username)
         .single();
 
-    // Create user if they do not exist
-    if (userError && userError.code === 'PGRST116') {
-        const { data: newUser, error: insertError } = await supabase
-            .from('users')
-            .insert([{ username: username }])
-            .select()
-            .single();
-
-        if (insertError) throw insertError;
-        userData = newUser;
+    if (existingUser) {
+        sendError(ws, 'Username is already taken.');
+        return;
     }
 
-    ws.username = username;
-    // Store both the WebSocket and the database UUID
-    clients.set(username, 
-        { ws: ws, id: userData.id, lastMessageTime: 0 }); 
-    
-    send(ws, { type: 'registered', username });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const { data: memberships, error: memberError} = await supabase
+    const { data: newUser, error: insertError } = await supabase
+        .from('users')
+        .insert([{ username: username, password_hash: hashedPassword }])
+        .select('id, username')
+        .single();
+
+    if (insertError) {
+        console.error('Signup error:', insertError);
+        sendError(ws, 'Failed to create account.');
+        return;
+    }
+
+    ws.username = newUser.username;
+    clients.set(newUser.username, { ws: ws, id: newUser.id, lastMessageTime: 0 });
+    
+    send(ws, { type: 'registered', username: newUser.username });
+    await loadInitialData(ws, newUser.id);
+}
+
+async function handleLogin(ws, data) {
+    const username = (data.username || '').trim();
+    const password = data.password;
+
+    if (!username || !password) {
+        sendError(ws, 'Username and password are required.');
+        return;
+    }
+
+    const { data: user, error} = await supabase
+        .from('users')
+        .select('id, username, password_hash')
+        .eq('username', username)
+        .single();
+
+    if (error || !user) {
+        sendError(ws, 'Invalid username or password.');
+        return;
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+
+    if (clients.has(user.username)) {
+        const oldClient = clients.get(user.username);
+        send(oldClient.ws, { type: 'error', message: 'You have been logged in from another device.' });
+        oldClient.ws.close();
+        clients.delete(user.username);
+    }
+
+    ws.username = user.username;
+    clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
+
+    send(ws, { type: 'registered', username: user.username });
+    await loadInitialData(ws. user.id);
+}
+
+async function loadInitialData(ws, userId) {
+    const { data: memberships } = await supabase
         .from('conversation_members')
         .select('conversation_id')
-        .eq('user_id', userData.id)
-    if (!memberError && memberships && memberships.length > 0) {
+        .eq('user_id', userId);
+
+    if (memberships && memberships.length > 0) {
         const conversationIds = memberships.map(m => m.conversation_id);
         send(ws, { type: 'my_conversations', conversationIds });
     }
 
-    const { data: allUsersData } = await supabase
-        .from('users')
-        .select('username');
-    
+    const { data: allUsersData } = await supabase.from('users').select('username');
     if (allUsersData) {
-        const allUsernames = allUsersData.map(u => u.username);
-        send(ws, { type: 'full_user_list', users: allUsernames });
+        send(ws, { type: 'full_user_list', users: allUsersData.map(u => u.username) });
     }
 
     broadcastUserList();
@@ -197,16 +241,6 @@ async function handleJoinConversation(ws, data) {
     });
 
     broadcastMemberUpdate(conversationId);
-}
-
-function handleLeaveConversation(ws, data) {
-    if (!requireRegistered(ws)) return;
-    const { conversationId } = data;
-    const members = conversations.get(conversationId);
-    if (members) {
-        members.delete(ws.username);
-        broadcastMemberUpdate(conversationId);
-    }
 }
 
 async function handleSendMessage(ws, data) {
@@ -482,10 +516,10 @@ module.exports = {
     broadcastUserList,
     broadcastMemberUpdate,
     requireRegistered,
-    handleRegister,
+    handleSignup,
+    handleLogin,
     handleCreateConversation,
     handleJoinConversation,
-    handleLeaveConversation,
     handleSendMessage,
     handleStartDM,
     handleCreateGroup
