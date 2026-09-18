@@ -5,7 +5,7 @@ const clients = new Map();
 const conversations = new Map();
 
 function send(ws, payload) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify(payload));
     }
 }
@@ -18,7 +18,7 @@ function broadcastUserList() {
     const users = Array.from(clients.keys());
     const payload = JSON.stringify({ type: 'user_list', users });
     for (const clientData of clients.values()) {
-        if (clientData.ws.readyState === WebSocket.OPEN) {
+        if (clientData && clientData.ws && clientData.ws.readyState === WebSocket.OPEN) {
             clientData.ws.send(payload);
         }
     }
@@ -29,8 +29,7 @@ function broadcastMemberUpdate(conversationId) {
     const payload = { type: 'member_update', conversationId, members };
     for (const username of members) {
         const client = clients.get(username);
-        // SAFE CHECK: Only send if the user is currently online and has a valid ws
-        if (client && client.ws) {
+        if (client && client.ws && client.ws.readyState === 1) {
             send(client.ws, payload);
         }
     }
@@ -114,6 +113,11 @@ async function handleLogin(ws, data) {
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
+    if (!isMatch) {
+        sendError(ws, 'Invalid username or password.');
+        return;
+    }
+
     if (clients.has(user.username)) {
         const oldClient = clients.get(user.username);
         send(oldClient.ws, { type: 'error', message: 'You have been logged in from another device.' });
@@ -125,7 +129,7 @@ async function handleLogin(ws, data) {
     clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
 
     send(ws, { type: 'registered', username: user.username });
-    await loadInitialData(ws. user.id);
+    await loadInitialData(ws, user.id);
 }
 
 async function loadInitialData(ws, userId) {
@@ -151,6 +155,8 @@ async function handleCreateConversation(ws) {
     if (!requireRegistered(ws)) return;
 
     const clientData = clients.get(ws.username);
+
+    if (!clientData) return;
 
     const { data: row, error } = await supabase
         .from('conversations')
@@ -187,6 +193,7 @@ async function handleJoinConversation(ws, data) {
     }
 
     const clientData = clients.get(ws.username);
+    if (!clientData) return;
 
     await supabase
         .from('conversation_members')
@@ -248,6 +255,11 @@ async function handleSendMessage(ws, data) {
     const { conversationId, content } = data;
 
     const clientData = clients.get(ws.username);
+    if (!clientData) {
+        sendError(ws, 'Session expired. Please log in again.');
+        return;
+    }
+
     const now = Date.now();
 
     if (now - clientData.lastMessageTime < 500) {
@@ -284,7 +296,6 @@ async function handleSendMessage(ws, data) {
 
     const senderData = clients.get(ws.username);
 
-    // Save to database using the user's UUID
     const { data: saved, error } = await supabase
         .from('messages')
         .insert([
@@ -297,7 +308,7 @@ async function handleSendMessage(ws, data) {
         .select()
         .single();
 
-    if (error) {
+    if (error || !saved) {
         console.error('Supabase error saving message:', error);
         sendError(ws, 'Failed to save message.');
         return;
@@ -313,7 +324,7 @@ async function handleSendMessage(ws, data) {
     
     for (const username of members) {
         const client = clients.get(username);
-        if (client && client.ws) {
+        if (client && client.ws && client.ws.readyState === WebSocket.OPEN) {
             send(client.ws, payload);
         }
     }
@@ -329,6 +340,7 @@ async function handleStartDM(ws, data) {
     }
 
     const currentUserData = clients.get(ws.username);
+    if (!currentUserData) return;
 
     const { data: targetUserData, error: targetError } = await supabase
         .from('users')
@@ -451,6 +463,7 @@ async function handleCreateGroup(ws, data) {
     }
 
     const currentUserData = clients.get(ws.username);
+    if (!currentUserData) return;
     const allUsernames = [ws.username, ...targetUsernames];
     const allUserIds = [currentUserData.id];
 

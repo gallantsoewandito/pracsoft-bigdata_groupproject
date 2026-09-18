@@ -34,7 +34,26 @@ export function renderOnlineUsers(users, onlineUsersSet) {
   const isDmActive = activeConvo && activeConvo.members.length === 2;
   const activeDmPartner = isDmActive ? activeConvo.members.find(m => m !== state.username) : null;
 
-  for (const user of safeUsers) {
+  const sortedUsers = [...safeUsers].sort((a, b) => {
+    let timeA = 0;
+    let timeB = 0;
+
+    for (const [, convo] of state.conversations) {
+      if (convo.members.length === 2 && convo.members.includes(a) && convo.members.includes(state.username)) {
+        timeA = convo.lastMessageAt ? new Date(convo.lastMessageAt).getTime() : 0;
+      }
+      if (convo.members.length === 2 && convo.members.includes(b) && convo.members.includes(state.username)) {
+        timeB = convo.lastMessageAt ? new Date(convo.lastMessageAt).getTime() : 0;
+      }
+    }
+
+    if (timeA === 0 && timeB === 0) return a.localeCompare(b);
+    if (timeA === 0) return 1;
+    if (timeB === 0) return -1;
+    return timeB - timeA;
+  })
+
+  for (const user of sortedUsers) {
     const li = document.createElement('li');
     const isOnline = safeSet.has(user);
     const isActive = user === activeDmPartner;
@@ -45,6 +64,7 @@ export function renderOnlineUsers(users, onlineUsersSet) {
     li.addEventListener('click', () => {
       if (user !== state.username) {
         console.log('🖱️ Clicked user:', user);
+        window.setRequestedTarget(user);
         window.send({ type: 'start_dm', targetUsername: user });
       }
     });

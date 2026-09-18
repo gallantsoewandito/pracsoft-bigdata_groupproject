@@ -2,6 +2,11 @@ import { state, addOrUpdateConversation, appendMessage, removeConversation } fro
 import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll } from './ui.js';
 
 let ws = null;
+let requestedTarget = null;
+
+export function setRequestedTarget(user) {
+  requestedTarget = user;
+}
 
 export function connect(username, password, authType) {
   ws = new WebSocket(`ws://${window.location.host}`);
@@ -29,6 +34,8 @@ export function connect(username, password, authType) {
 export function send(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
+  } else {
+    console.warn('Cannot send, WebSocket is not open.');
   }
 }
 
@@ -70,12 +77,21 @@ export function handleServerMessage(data) {
 
     case 'conversation_created':
     case 'conversation_joined':
-      console.log('📩 Received from server:', data.type, 'Convo ID:', data.conversationId, 'Members:', data.members);
+      const lastMsg = data.history && data.history.length > 0 
+        ? data.history[data.history.length - 1].created_at 
+        : (data.createdAt || null);
+
       addOrUpdateConversation(data.conversationId, {
         members: data.members,
         messages: data.history || [],
+        lastMessageAt: lastMsg
       });
-      setActiveConversation(data.conversationId);
+      if (requestedTarget && data.members.includes(requestedTarget)) {
+        setActiveConversation(data.conversationId);
+        requestedTarget = null;
+      } else if (data.type === 'conversation_created') {
+        setActiveConversation(data.conversationId);
+      }
       break;
 
     case 'member_update':
@@ -86,9 +102,15 @@ export function handleServerMessage(data) {
 
     case 'new_message':
       appendMessage(data.conversationId, data);
+
+      const convo = state.conversations.get(data.conversationId);
+      if (convo) convo.lastMessageAt = data.createdAt;
+
       if (data.conversationId === state.activeConversationId) {
         renderActiveConversation();
       }
+
+      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
 
     default:

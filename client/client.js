@@ -1,10 +1,12 @@
 import { state, removeConversation } from './state.js';
 import { el, renderLoginError, renderAll, renderGroupModal } from './ui.js';
-import { connect, send, setActiveConversation } from './network.js';
+import { connect, send, setActiveConversation, setRequestedTarget } from './network.js';
 
+// Expose functions to the window object so other modules can use them
 window.state = state;
 window.send = send;
 window.setActiveConversation = setActiveConversation;
+window.setRequestedTarget = setRequestedTarget;
 
 const passwordInput = document.getElementById('password-input');
 const authBtn = document.getElementById('auth-btn');
@@ -24,7 +26,7 @@ toggleAuthMode.addEventListener('click', () => {
   renderLoginError('');
 });
 
-// Handle Auth Button Click
+// Handle Auth Button Click (Login or Signup)
 authBtn.addEventListener('click', () => {
   const username = document.getElementById('username-input').value.trim();
   const password = passwordInput.value;
@@ -35,30 +37,17 @@ authBtn.addEventListener('click', () => {
   }
 
   renderLoginError('');
-  
-  // Send either 'login' or 'signup' based on the current mode
   const authType = isLoginMode ? 'login' : 'signup';
   connect(username, password, authType); 
 });
 
-
-document.getElementById('connect-btn').addEventListener('click', () => {
-  const username = el.usernameInput.value.trim();
-  if (!username) {
-    renderLoginError('Please enter a username.');
-    return;
-  }
-  renderLoginError('');
-  connect(username);
-});
-
-// ✅ OPEN MODAL: Add 'is-active'
+// ✅ OPEN MODAL
 document.getElementById('new-group-chat-btn').addEventListener('click', () => {
   renderGroupModal(window.allUsers || []);
   el.groupModal.classList.add('is-active');
 });
 
-// ✅ CLOSE MODAL: Remove 'is-active'
+// ✅ CLOSE MODAL
 document.getElementById('close-modal-btn').addEventListener('click', () => {
   el.groupModal.classList.remove('is-active');
 });
@@ -81,13 +70,11 @@ document.getElementById('confirm-group-btn').addEventListener('click', () => {
     return;
   }
 
-  // Send request to create group with selected users
   send({ type: 'create_group', members: selectedUsers });
-  
-  // Close the modal by removing 'is-active'
   el.groupModal.classList.remove('is-active');
 });
 
+// ✅ SEND MESSAGE
 el.messageForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const content = el.messageInput.value.trim();
