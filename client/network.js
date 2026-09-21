@@ -1,6 +1,6 @@
 import { importKey, decryptText } from './crypto.js';
-import { state, addOrUpdateConversation, appendMessage, removeConversation } from './state.js';
-import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll } from './ui.js';
+import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping } from './state.js';
+import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator } from './ui.js';
 
 let ws = null;
 let requestedTarget = null;
@@ -85,13 +85,13 @@ export async function handleServerMessage(data) {
         state.conversationKeys.set(data.conversationId, key);
       }
 
-      const decryptedHistory = [];
+      let decryptedHistory = [];
       if (data.history && data.history.length > 0) {
-        decryptedHistory = await Promise.all(decryptedHistory.map(async (msg) => {
-          msg.content = await decryptText(msg.content, key);
-          return msg
-        }));
-      }
+      decryptedHistory = await Promise.all(data.history.map(async (msg) => {
+      msg.content = await decryptText(msg.content, key);
+      return msg;
+  }));
+}
 
       const lastMsg = decryptedHistory.length > 0 
         ? decryptedHistory[decryptedHistory.length - 1].created_at 
@@ -111,6 +111,13 @@ export async function handleServerMessage(data) {
       }
       break;
 
+    case 'typing':
+      setTyping(data.conversationId, data.username, data.isTyping);
+      if (data.conversationId === state.activeConversationId) {
+      renderTypingIndicator();
+      }
+      break;
+
     case 'new_message':
       const msgKey = state.conversationKeys.get(data.conversationId);
       let displayContent = data.content;
@@ -121,6 +128,11 @@ export async function handleServerMessage(data) {
 
       const decryptedMsg = { ...data, content: displayContent };
       appendMessage(data.conversationId, decryptedMsg);
+
+      setTyping(data.conversationId, data.senderId, false);
+      if (data.conversationId === state.activeConversationId) {
+      renderTypingIndicator();
+}
       
       const convo = state.conversations.get(data.conversationId);
       if (convo) convo.lastMessageAt = data.createdAt;

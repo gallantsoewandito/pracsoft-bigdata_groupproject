@@ -14,7 +14,25 @@ export const el = {
   messageInput: document.getElementById('message-input'),
   groupModal: document.getElementById('group-modal'),
   groupMemberList: document.getElementById('group-member-list'),
+  typingIndicator: document.getElementById('typing-indicator'),
 };
+
+export function renderTypingIndicator() {
+  const id = state.activeConversationId;
+  if (!id) {
+    el.typingIndicator.textContent = '';
+    return;
+  }
+  const typingSet = state.typingUsers.get(id);
+  if (!typingSet || typingSet.size === 0) {
+    el.typingIndicator.textContent = '';
+    return;
+  }
+  const names = Array.from(typingSet);
+  el.typingIndicator.textContent = names.length === 1
+    ? `${names[0]} is typing...`
+    : `${names.join(', ')} are typing...`;
+}
 
 export function renderLoginError(message) {
   el.loginError.textContent = message || '';
@@ -114,6 +132,7 @@ export function renderActiveConversation() {
     el.messageHistory.appendChild(div);
   }
   el.messageHistory.scrollTop = el.messageHistory.scrollHeight;
+  renderTypingIndicator();
 }
 
 export function renderAll() {

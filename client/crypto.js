@@ -50,7 +50,7 @@ export async function decryptText(base64Data, key) {
     const decrypted = await window.crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: iv },
       key,
-      ciphertext
+      cipherText
     );
     return new TextDecoder().decode(decrypted);
   } catch (e) {

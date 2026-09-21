@@ -4,7 +4,8 @@ export const state = {
   conversations: new Map(),
   activeConversationId: null,
   unreadCounts: new Map(),
-  conversationKeys: new Map()
+  conversationKeys: new Map(),
+  typingUsers: new Map()
 };
 
 export function addOrUpdateConversation(conversationId, { members, messages, lastMessageAt }) {
@@ -37,4 +38,14 @@ export function incrementUnread(conversationId) {
 
 export function clearUnread(conversationId) {
   state.unreadCounts.set(conversationId, 0);
+}
+
+export function setTyping(conversationId, username, isTyping) {
+  let set = state.typingUsers.get(conversationId);
+  if (!set) {
+    set = new Set();
+    state.typingUsers.set(conversationId, set);
+  }
+  if (isTyping) set.add(username);
+  else set.delete(username);
 }

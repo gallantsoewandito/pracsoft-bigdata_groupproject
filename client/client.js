@@ -13,6 +13,30 @@ const passwordInput = document.getElementById('password-input');
 const authBtn = document.getElementById('auth-btn');
 const toggleAuthMode = document.getElementById('toggle-auth-mode');
 let isLoginMode = true;
+let typingTimeout = null;
+let isCurrentlyTyping = false;
+
+function stopTyping() {
+  const conversationId = state.activeConversationId;
+  clearTimeout(typingTimeout);
+  if (isCurrentlyTyping && conversationId) {
+    isCurrentlyTyping = false;
+    send({ type: 'typing', conversationId, isTyping: false });
+  }
+}
+
+el.messageInput.addEventListener('input', () => {
+  const conversationId = state.activeConversationId;
+  if (!conversationId) return;
+
+  if (!isCurrentlyTyping) {
+    isCurrentlyTyping = true;
+    send({ type: 'typing', conversationId, isTyping: true });
+  }
+
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(stopTyping, 2000); // stop after 2s of inactivity
+});
 
 // Toggle between Login and Signup
 toggleAuthMode.addEventListener('click', () => {
@@ -81,13 +105,14 @@ el.messageForm.addEventListener('submit', async (e) => {
   const conversationId = state.activeConversationId;
   if (!content || !conversationId) return;
 
+  stopTyping(); // sending a message means you're done typing
+
   const key = state.conversationKeys.get(conversationId);
   let payloadContent = content;
-
   if (key) {
     payloadContent = await encryptText(content, key);
   }
-  
+
   send({ type: 'send_message', conversationId, content: payloadContent });
   el.messageInput.value = '';
 });

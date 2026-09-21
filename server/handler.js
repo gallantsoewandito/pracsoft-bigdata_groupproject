@@ -338,6 +338,24 @@ async function handleSendMessage(ws, data) {
     }
 }
 
+function handleTyping(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const { conversationId, isTyping } = data;
+
+    const members = conversations.get(conversationId);
+    if (!members || !members.has(ws.username)) return;
+
+    const payload = { type: 'typing', conversationId, username: ws.username, isTyping: !!isTyping };
+
+    for (const username of members) {
+        if (username === ws.username) continue;
+        const client = clients.get(username);
+        if (client && client.ws && client.ws.readyState === 1) {
+            send(client.ws, payload);
+        }
+    }
+}
+
 async function handleStartDM(ws, data) {
     if (!requireRegistered(ws)) return;
     const { targetUsername } = data;
@@ -436,39 +454,40 @@ async function handleStartDM(ws, data) {
         });
         broadcastMemberUpdate(existingConversationId);
     } else {
-        const { data: newRow, error: createError } = await supabase
-            .from('conversations')
-            .insert([{ conversation_key: data.conversationKey }])
-            .select()
-            .single();
-        
-        // ... later, when sending the response ...
-        send(ws, { 
-            type: 'conversation_joined', 
-            conversationId: newConvoId,
-            members: [ws.username, targetUsername],
-            history: [],
-            conversationKey: data.conversationKey
-        });
+    const { data: newRow, error: createError } = await supabase
+        .from('conversations')
+        .insert([{ conversation_key: data.conversationKey }])
+        .select()
+        .single();
 
-        const newConvoId = newRow.id;
-        await supabase
-            .from('conversation_members')
-            .insert([
-                { conversation_id: newConvoId, user_id: currentUserId },
-                { conversation_id: newConvoId, user_id: targetUserId }
-            ]);
-
-        conversations.set(newConvoId, new Set([ws.username, targetUsername]));
-        conversationKeys.set(newConvoId, data.conversationKey);
-        send(ws, { 
-            type: 'conversation_joined', 
-            conversationId: newConvoId,
-            members: [ws.username, targetUsername],
-            history: [] 
-        });
-        broadcastMemberUpdate(newConvoId);
+    if (createError || !newRow) {
+        console.error('Supabase error creating DM:', createError);
+        sendError(ws, 'Failed to create conversation.');
+        return;
     }
+
+    const newConvoId = newRow.id;
+
+    await supabase
+        .from('conversation_members')
+        .insert([
+            { conversation_id: newConvoId, user_id: currentUserId },
+            { conversation_id: newConvoId, user_id: targetUserId }
+        ]);
+
+    conversations.set(newConvoId, new Set([ws.username, targetUsername]));
+    conversationKeys.set(newConvoId, data.conversationKey);
+
+    send(ws, {
+        type: 'conversation_joined',
+        conversationId: newConvoId,
+        members: [ws.username, targetUsername],
+        history: [],
+        conversationKey: data.conversationKey
+    });
+
+    broadcastMemberUpdate(newConvoId);
+}
 }
 
 async function handleCreateGroup(ws, data) {
@@ -554,6 +573,7 @@ module.exports = {
     handleCreateConversation,
     handleJoinConversation,
     handleSendMessage,
+    handleTyping,
     handleStartDM,
     handleCreateGroup
 };

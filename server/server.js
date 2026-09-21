@@ -15,7 +15,8 @@ const {
     handleJoinConversation,
     handleSendMessage,
     handleStartDM,
-    handleCreateGroup
+    handleCreateGroup,
+    handleTyping
 } = require('./handler');
 
 const app = express();
@@ -54,6 +55,9 @@ wss.on('connection', (ws) => {
                 case 'send_message':
                     await handleSendMessage(ws, data);
                     break;
+                case 'typing':
+                    await handleTyping(ws, data);
+                    break;
                 case 'fetch_history':
                     await handleFetchHistory(ws, data);
                     break;
@@ -73,17 +77,22 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
-        if (ws.username) {
-            clients.delete(ws.username);
-            for (const [conversationId, members] of conversations.entries()) {
-                if (members.delete(ws.username)) {
-                    broadcastMemberUpdate(conversationId);
+    if (ws.username) {
+        clients.delete(ws.username);
+        for (const [conversationId, members] of conversations.entries()) {
+            if (members.delete(ws.username)) {
+                broadcastMemberUpdate(conversationId);
+                for (const username of members) {
+                    const client = clients.get(username);
+                    if (client && client.ws && client.ws.readyState === 1) {
+                        send(client.ws, { type: 'typing', conversationId, username: ws.username, isTyping: false });
+                    }
                 }
             }
-            broadcastUserList();
-            console.log(`${ws.username} disconnected`);
         }
-    });
+        broadcastUserList();
+    }
+});
 });
 
 const PORT = process.env.PORT || 3000;

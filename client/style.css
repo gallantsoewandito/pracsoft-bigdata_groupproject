@@ -56,6 +56,15 @@ html, body {
   margin: 0;
 }
 
+.typing-indicator {
+  padding: 0.25rem 1.5rem;
+  font-size: 0.8rem;
+  color: #7a7a7a;
+  font-style: italic;
+  min-height: 1.2rem;
+  background-color: #f8f9fa;
+}
+
 .sidebar {
   background-color: #ffffff;
   border-right: 1px solid #e0e6ed;
