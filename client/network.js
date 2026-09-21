@@ -87,10 +87,10 @@ export async function handleServerMessage(data) {
 
       const decryptedHistory = [];
       if (data.history && data.history.length > 0) {
-        for (const msg of data.history) {
+        decryptedHistory = await Promise.all(decryptedHistory.map(async (msg) => {
           msg.content = await decryptText(msg.content, key);
-          decryptedHistory.push(msg);
-        }
+          return msg
+        }));
       }
 
       const lastMsg = decryptedHistory.length > 0 
@@ -128,13 +128,12 @@ export async function handleServerMessage(data) {
       if (data.conversationId === state.activeConversationId) {
         renderActiveConversation();
       }
-      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+
       break;
 
     case 'member_update':
       addOrUpdateConversation(data.conversationId, { members: data.members });
       renderActiveConversation();
-      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
 
     default:

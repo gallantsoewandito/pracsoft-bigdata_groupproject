@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt')
 
 const clients = new Map();
 const conversations = new Map();
+const conversationKeys = new Map();
 
 function send(ws, payload) {
     if (ws && ws.readyState === 1) {
@@ -459,6 +460,7 @@ async function handleStartDM(ws, data) {
             ]);
 
         conversations.set(newConvoId, new Set([ws.username, targetUsername]));
+        conversationKeys.set(newConvoId, data.conversationKey);
         send(ws, { 
             type: 'conversation_joined', 
             conversationId: newConvoId,
@@ -525,6 +527,7 @@ async function handleCreateGroup(ws, data) {
 
     // Track in server memory
     conversations.set(newConvoId, new Set(allUsernames));
+    conversationKeys.set(newConvoId, data.conversationKey);
     
     // Notify the creator
     send(ws, { 
