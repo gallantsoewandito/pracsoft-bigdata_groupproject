@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { generateKey, exportKey } from './crypto.js';
 
 export const el = {
   loginScreen: document.getElementById('login-screen'),
@@ -61,11 +62,15 @@ export function renderOnlineUsers(users, onlineUsersSet) {
     li.innerHTML = `<span class="status-dot ${isOnline ? 'online' : 'offline'}"></span> ${user} ${user === state.username ? '(you)' : ''}`;
     li.className = `user-list-item ${isActive ? 'active' : ''}`;
     
-    li.addEventListener('click', () => {
+    li.addEventListener('click', async () => {
       if (user !== state.username) {
-        console.log('🖱️ Clicked user:', user);
+        console.log('Clicked user:', user);
         window.setRequestedTarget(user);
-        window.send({ type: 'start_dm', targetUsername: user });
+        
+        const key = await generateKey();
+        const rawKey = await exportKey(key);
+        
+        window.send({ type: 'start_dm', targetUsername: user, conversationKey: rawKey });
       }
     });
     

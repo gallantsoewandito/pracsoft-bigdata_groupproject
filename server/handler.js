@@ -240,11 +240,18 @@ async function handleJoinConversation(ws, data) {
         created_at: msg.created_at
     }));
 
+    const { data: convoData } = await supabase
+        .from('conversations')
+        .select('conversation_key')
+        .eq('id', conversationId)
+        .single();
+
     send(ws, {
         type: 'conversation_joined',
         conversationId,
         members: Array.from(conversations.get(conversationId)),
         history: formattedHistory,
+        conversationKey: convoData ? convoData.conversation_key : null
     });
 
     broadcastMemberUpdate(conversationId);
@@ -414,25 +421,34 @@ async function handleStartDM(ws, data) {
             content: msg.content,
             created_at: msg.created_at
         }));
+        const { data: convoData } = await supabase
+            .from('conversations')
+            .select('conversation_key')
+            .eq('id', existingConversationId)
+            .single();
         send(ws, {
             type: 'conversation_joined', 
             conversationId: existingConversationId,
             members: [ws.username, targetUsername],
-            history: formattedHistory
+            history: formattedHistory,
+            conversationKey: convoData ? convoData.conversation_key : null
         });
         broadcastMemberUpdate(existingConversationId);
     } else {
         const { data: newRow, error: createError } = await supabase
             .from('conversations')
-            .insert([{}])
+            .insert([{ conversation_key: data.conversationKey }])
             .select()
             .single();
         
-        if (createError) {
-            console.error('Supabase error creating DM:', createError);
-            sendError(ws, 'Failed to create conversation.');
-            return;
-        }
+        // ... later, when sending the response ...
+        send(ws, { 
+            type: 'conversation_joined', 
+            conversationId: newConvoId,
+            members: [ws.username, targetUsername],
+            history: [],
+            conversationKey: data.conversationKey
+        });
 
         const newConvoId = newRow.id;
         await supabase
@@ -485,7 +501,7 @@ async function handleCreateGroup(ws, data) {
     // Create the new conversation
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{}])
+        .insert([{ conversation_key: data.conversationKey }])
         .select()
         .single();
     
@@ -515,6 +531,7 @@ async function handleCreateGroup(ws, data) {
         type: 'conversation_created', 
         conversationId: newConvoId,
         members: allUsernames,
+        conversationKey: data.conversationKey,
         history: [] 
     });
 

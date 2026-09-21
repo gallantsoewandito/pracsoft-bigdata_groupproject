@@ -3,7 +3,8 @@ export const state = {
   onlineUsers: [],
   conversations: new Map(),
   activeConversationId: null,
-  unreadCounts: new Map()
+  unreadCounts: new Map(),
+  conversationKeys: new Map()
 };
 
 export function addOrUpdateConversation(conversationId, { members, messages, lastMessageAt }) {

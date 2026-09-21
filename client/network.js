@@ -1,3 +1,4 @@
+import { importKey, decryptText } from './crypto.js';
 import { state, addOrUpdateConversation, appendMessage, removeConversation } from './state.js';
 import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll } from './ui.js';
 
@@ -39,7 +40,7 @@ export function send(payload) {
   }
 }
 
-export function handleServerMessage(data) {
+export async function handleServerMessage(data) {
   switch (data.type) {
     case 'registered':
       state.username = data.username;
@@ -77,15 +78,31 @@ export function handleServerMessage(data) {
 
     case 'conversation_created':
     case 'conversation_joined':
-      const lastMsg = data.history && data.history.length > 0 
-        ? data.history[data.history.length - 1].created_at 
+      let key = state.conversationKeys.get(data.conversationId);
+
+      if (data.conversationKey && !key) {
+        key = await importKey(data.conversationKey);
+        state.conversationKeys.set(data.conversationId, key);
+      }
+
+      const decryptedHistory = [];
+      if (data.history && data.history.length > 0) {
+        for (const msg of data.history) {
+          msg.content = await decryptText(msg.content, key);
+          decryptedHistory.push(msg);
+        }
+      }
+
+      const lastMsg = decryptedHistory.length > 0 
+        ? decryptedHistory[decryptedHistory.length - 1].created_at 
         : (data.createdAt || null);
 
       addOrUpdateConversation(data.conversationId, {
         members: data.members,
-        messages: data.history || [],
+        messages: decryptedHistory,
         lastMessageAt: lastMsg
       });
+      
       if (requestedTarget && data.members.includes(requestedTarget)) {
         setActiveConversation(data.conversationId);
         requestedTarget = null;
@@ -94,22 +111,29 @@ export function handleServerMessage(data) {
       }
       break;
 
-    case 'member_update':
-      addOrUpdateConversation(data.conversationId, { members: data.members });
-      renderActiveConversation();
-      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
-      break;
-
     case 'new_message':
-      appendMessage(data.conversationId, data);
+      const msgKey = state.conversationKeys.get(data.conversationId);
+      let displayContent = data.content;
+      
+      if (msgKey) {
+        displayContent = await decryptText(data.content, msgKey);
+      }
 
+      const decryptedMsg = { ...data, content: displayContent };
+      appendMessage(data.conversationId, decryptedMsg);
+      
       const convo = state.conversations.get(data.conversationId);
       if (convo) convo.lastMessageAt = data.createdAt;
 
       if (data.conversationId === state.activeConversationId) {
         renderActiveConversation();
       }
+      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+      break;
 
+    case 'member_update':
+      addOrUpdateConversation(data.conversationId, { members: data.members });
+      renderActiveConversation();
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
 

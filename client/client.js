@@ -1,6 +1,7 @@
 import { state, removeConversation } from './state.js';
 import { el, renderLoginError, renderAll, renderGroupModal } from './ui.js';
 import { connect, send, setActiveConversation, setRequestedTarget } from './network.js';
+import { generateKey, exportKey, encryptText } from './crypto.js';
 
 // Expose functions to the window object so other modules can use them
 window.state = state;
@@ -74,12 +75,19 @@ document.getElementById('confirm-group-btn').addEventListener('click', () => {
   el.groupModal.classList.remove('is-active');
 });
 
-// ✅ SEND MESSAGE
-el.messageForm.addEventListener('submit', (e) => {
+el.messageForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const content = el.messageInput.value.trim();
   const conversationId = state.activeConversationId;
   if (!content || !conversationId) return;
-  send({ type: 'send_message', conversationId, content });
+
+  const key = state.conversationKeys.get(conversationId);
+  let payloadContent = content;
+
+  if (key) {
+    payloadContent = await encryptText(content, key);
+  }
+  
+  send({ type: 'send_message', conversationId, content: payloadContent });
   el.messageInput.value = '';
 });
