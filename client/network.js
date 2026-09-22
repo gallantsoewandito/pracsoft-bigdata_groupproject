@@ -10,8 +10,10 @@ export function setRequestedTarget(user) {
 }
 
 export function connect(username, password, authType) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${window.location.host}`);
+  const wsUrl = window.location.hostname === 'localhost' 
+    ? 'ws://localhost:3000' 
+    : 'https://pracsoft-bigdata-groupproject.onrender.com';
+  ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {
     send({ type: authType, username, password });
