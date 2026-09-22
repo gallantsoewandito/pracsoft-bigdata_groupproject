@@ -25,7 +25,21 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.static(path.join(__dirname, '../client')));
 
+setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000)
+
 wss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
     console.log('New client connected');
     ws.username = null;
 

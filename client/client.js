@@ -61,7 +61,10 @@ authBtn.addEventListener('click', () => {
     return;
   }
 
-  renderLoginError('');
+  authBtn.disabled = true;
+  authBtn.textContent = 'Connecting to server...'
+  renderLoginError(''); 
+
   const authType = isLoginMode ? 'login' : 'signup';
   connect(username, password, authType); 
 });

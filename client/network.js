@@ -4,18 +4,25 @@ import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConver
 
 let ws = null;
 let requestedTarget = null;
+let isConnecting = null;
 
 export function setRequestedTarget(user) {
   requestedTarget = user;
 }
 
 export function connect(username, password, authType) {
+  if (isConnecting) {
+    console.warn('Connection already in progress. Please wait.');
+    return;
+  }
+  isConnecting = true;
   const wsUrl = window.location.hostname === 'localhost' 
     ? 'ws://localhost:3000' 
     : 'wss://pracsoft-bigdata-groupproject.onrender.com';
   ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {
+    isConnecting = false
     send({ type: authType, username, password });
   });
 
@@ -25,12 +32,14 @@ export function connect(username, password, authType) {
   });
 
   ws.addEventListener('close', () => {
+    isConnecting = false;
     renderLoginError('Disconnected from server.');
     document.getElementById('app').classList.add('is-hidden');
     document.getElementById('login-screen').classList.remove('is-hidden');
   });
 
   ws.addEventListener('error', () => {
+    isConnecting = false;
     renderLoginError('Connection error.');
   });
 }
