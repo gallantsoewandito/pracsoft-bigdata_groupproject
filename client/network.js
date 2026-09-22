@@ -4,7 +4,8 @@ import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConver
 
 let ws = null;
 let requestedTarget = null;
-let isConnecting = null;
+let isConnecting = false;
+let heartbeatInterval = null;
 
 export function setRequestedTarget(user) {
   requestedTarget = user;
@@ -22,17 +23,30 @@ export function connect(username, password, authType) {
   ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {
-    isConnecting = false
+    isConnecting = false;
+    heartbeatInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 25000)
+
     send({ type: authType, username, password });
   });
 
   ws.addEventListener('message', (event) => {
     const data = JSON.parse(event.data);
+
+    if (data.type === 'pong') {
+      return;
+    }
     handleServerMessage(data);
   });
 
   ws.addEventListener('close', () => {
     isConnecting = false;
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval)
+    }
     renderLoginError('Disconnected from server.');
     document.getElementById('app').classList.add('is-hidden');
     document.getElementById('login-screen').classList.remove('is-hidden');
@@ -40,6 +54,9 @@ export function connect(username, password, authType) {
 
   ws.addEventListener('error', () => {
     isConnecting = false;
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+    }
     renderLoginError('Connection error.');
   });
 }

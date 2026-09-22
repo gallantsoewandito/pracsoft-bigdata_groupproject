@@ -81,6 +81,9 @@ wss.on('connection', (ws) => {
                 case 'create_group':
                     await handleCreateGroup(ws, data);
                     break;
+                case 'ping':
+                    send(ws, { type: 'pong' });
+                    break;
                 default:
                     sendError(ws, `Unknown message type: ${data.type}`);
             }

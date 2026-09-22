@@ -5,6 +5,10 @@ const clients = new Map();
 const conversations = new Map();
 const conversationKeys = new Map();
 
+async function handlePing(ws) {
+  send(ws, { type: 'pong' });
+}
+
 function send(ws, payload) {
     if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify(payload));
