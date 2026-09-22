@@ -12,7 +12,7 @@ export function setRequestedTarget(user) {
 export function connect(username, password, authType) {
   const wsUrl = window.location.hostname === 'localhost' 
     ? 'ws://localhost:3000' 
-    : 'https://pracsoft-bigdata-groupproject.onrender.com';
+    : 'wss://pracsoft-bigdata-groupproject.onrender.com';
   ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {
