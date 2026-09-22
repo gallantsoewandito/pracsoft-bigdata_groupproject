@@ -10,7 +10,8 @@ export function setRequestedTarget(user) {
 }
 
 export function connect(username, password, authType) {
-  ws = new WebSocket(`ws://${window.location.host}`);
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${window.location.host}`);
 
   ws.addEventListener('open', () => {
     send({ type: authType, username, password });
