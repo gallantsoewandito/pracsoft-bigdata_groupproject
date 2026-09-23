@@ -4,6 +4,9 @@ const bcrypt = require('bcrypt')
 const clients = new Map();
 const conversations = new Map();
 const conversationKeys = new Map();
+const publicKeys = new Map();
+const groupInvites = new Map();
+const groupConversations = new Set();
 
 async function handlePing(ws) {
   send(ws, { type: 'pong' });
@@ -46,6 +49,25 @@ function requireRegistered(ws) {
         return false;
     }
     return true;
+}
+
+function handleRegisterPublicKey(ws, data) {
+    if (!requireRegistered(ws)) return;
+    if (typeof data.publicKey !== 'string' || data.publicKey.length > 4096) {
+        sendError(ws, 'Invalid public key.');
+        return;
+    }
+    publicKeys.set(ws.username, data.publicKey);
+}
+
+function handleGetPublicKey(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const publicKey = publicKeys.get(data.username);
+    if (!publicKey) {
+        sendError(ws, 'That user has not established encryption yet.');
+        return;
+    }
+    send(ws, { type: 'public_key', username: data.username, publicKey });
 }
 
 async function handleSignup(ws, data) {
@@ -193,12 +215,24 @@ async function handleJoinConversation(ws, data) {
         return;
     }
 
+    const clientData = clients.get(ws.username);
+    if (!clientData) return;
+
+    const { data: membership, error: membershipError } = await supabase
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', clientData.id)
+        .maybeSingle();
+
+    if (membershipError || !membership) {
+        sendError(ws, 'You are not a member of that conversation.');
+        return;
+    }
+
     if (!conversations.has(conversationId)) {
         conversations.set(conversationId, new Set());
     }
-
-    const clientData = clients.get(ws.username);
-    if (!clientData) return;
 
     await supabase
         .from('conversation_members')
@@ -255,11 +289,69 @@ async function handleJoinConversation(ws, data) {
         type: 'conversation_joined',
         conversationId,
         members: Array.from(conversations.get(conversationId)),
+        isGroup: groupConversations.has(conversationId),
         history: formattedHistory,
         conversationKey: convoData ? convoData.conversation_key : null
     });
 
     broadcastMemberUpdate(conversationId);
+}
+
+async function handleAcceptGroupInvite(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const invite = (groupInvites.get(ws.username) || []).find(item => item.conversationId === data.conversationId);
+    if (!invite) {
+        sendError(ws, 'That group invitation is no longer available.');
+        return;
+    }
+
+    const clientData = clients.get(ws.username);
+    const { error } = await supabase
+        .from('conversation_members')
+        .upsert(
+            [{ conversation_id: invite.conversationId, user_id: clientData.id }],
+            { onConflict: 'conversation_id, user_id' }
+        );
+    if (error) {
+        sendError(ws, 'Failed to join group.');
+        return;
+    }
+
+    groupInvites.set(ws.username, (groupInvites.get(ws.username) || [])
+        .filter(item => item.conversationId !== invite.conversationId));
+    send(ws, { type: 'group_invite_accepted', conversationId: invite.conversationId });
+    await handleJoinConversation(ws, { conversationId: invite.conversationId });
+    broadcastMemberUpdate(invite.conversationId);
+}
+
+async function handleLeaveGroup(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const clientData = clients.get(ws.username);
+    const { data: memberRows, error: lookupError } = await supabase
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('conversation_id', data.conversationId)
+        .eq('user_id', clientData.id)
+        .maybeSingle();
+    if (lookupError || !memberRows) {
+        sendError(ws, 'You are not a member of that group.');
+        return;
+    }
+
+    const { error } = await supabase
+        .from('conversation_members')
+        .delete()
+        .eq('conversation_id', data.conversationId)
+        .eq('user_id', clientData.id);
+    if (error) {
+        sendError(ws, 'Failed to leave group.');
+        return;
+    }
+
+    const members = conversations.get(data.conversationId);
+    if (members) members.delete(ws.username);
+    send(ws, { type: 'group_left', conversationId: data.conversationId });
+    broadcastMemberUpdate(data.conversationId);
 }
 
 async function handleSendMessage(ws, data) {
@@ -460,7 +552,7 @@ async function handleStartDM(ws, data) {
     } else {
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{ conversation_key: data.conversationKey }])
+        .insert([{ conversation_key: JSON.stringify(data.conversationKeys || {}) }])
         .select()
         .single();
 
@@ -480,14 +572,14 @@ async function handleStartDM(ws, data) {
         ]);
 
     conversations.set(newConvoId, new Set([ws.username, targetUsername]));
-    conversationKeys.set(newConvoId, data.conversationKey);
+    conversationKeys.set(newConvoId, data.conversationKeys || {});
 
     send(ws, {
         type: 'conversation_joined',
         conversationId: newConvoId,
         members: [ws.username, targetUsername],
         history: [],
-        conversationKey: data.conversationKey
+        conversationKey: JSON.stringify(data.conversationKeys || {})
     });
 
     broadcastMemberUpdate(newConvoId);
@@ -505,28 +597,33 @@ async function handleCreateGroup(ws, data) {
 
     const currentUserData = clients.get(ws.username);
     if (!currentUserData) return;
-    const allUsernames = [ws.username, ...targetUsernames];
-    const allUserIds = [currentUserData.id];
+    const uniqueTargets = [...new Set(targetUsernames)].filter(username => username !== ws.username);
+    if (uniqueTargets.length === 0) {
+        sendError(ws, 'A group must include at least one other member.');
+        return;
+    }
+    const wrappedKeys = data.conversationKeys || {};
 
     // Fetch database IDs for all selected users
     const { data: targetUsers, error: targetError } = await supabase
         .from('users')
         .select('id, username')
-        .in('username', targetUsernames);
+        .in('username', uniqueTargets);
 
-    if (targetError || !targetUsers) {
+    if (targetError || !targetUsers || targetUsers.length !== uniqueTargets.length) {
         sendError(ws, 'Failed to find users.');
         return;
     }
 
-    for (const user of targetUsers) {
-        allUserIds.push(user.id);
+    if (!wrappedKeys[ws.username] || targetUsers.some(user => !wrappedKeys[user.username])) {
+        sendError(ws, 'Group encryption keys are incomplete.');
+        return;
     }
 
     // Create the new conversation
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{ conversation_key: data.conversationKey }])
+        .insert([{ conversation_key: JSON.stringify(wrappedKeys) }])
         .select()
         .single();
     
@@ -539,25 +636,37 @@ async function handleCreateGroup(ws, data) {
     const newConvoId = newRow.id;
 
     // Add all members to the database
-    const memberInserts = allUserIds.map(userId => ({
-        conversation_id: newConvoId,
-        user_id: userId
-    }));
+    const memberInserts = [{ conversation_id: newConvoId, user_id: currentUserData.id }];
 
     await supabase
         .from('conversation_members')
         .insert(memberInserts);
 
     // Track in server memory
-    conversations.set(newConvoId, new Set(allUsernames));
-    conversationKeys.set(newConvoId, data.conversationKey);
+    conversations.set(newConvoId, new Set([ws.username]));
+    groupConversations.add(newConvoId);
+    conversationKeys.set(newConvoId, wrappedKeys);
+
+    for (const user of targetUsers) {
+        const invite = {
+            conversationId: newConvoId,
+            inviter: ws.username,
+            conversationKey: JSON.stringify({ [user.username]: wrappedKeys[user.username] })
+        };
+        const invites = groupInvites.get(user.username) || [];
+        invites.push(invite);
+        groupInvites.set(user.username, invites);
+        const targetClient = clients.get(user.username);
+        if (targetClient) send(targetClient.ws, { type: 'group_invite', ...invite });
+    }
     
     // Notify the creator
     send(ws, { 
         type: 'conversation_created', 
         conversationId: newConvoId,
-        members: allUsernames,
-        conversationKey: data.conversationKey,
+        members: [ws.username],
+        isGroup: true,
+        conversationKey: JSON.stringify(wrappedKeys),
         history: [] 
     });
 
@@ -580,4 +689,8 @@ module.exports = {
     handleTyping,
     handleStartDM,
     handleCreateGroup
+    ,handleRegisterPublicKey
+    ,handleGetPublicKey
+    ,handleAcceptGroupInvite
+    ,handleLeaveGroup
 };

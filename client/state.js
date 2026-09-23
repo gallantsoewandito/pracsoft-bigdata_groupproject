@@ -5,15 +5,19 @@ export const state = {
   activeConversationId: null,
   unreadCounts: new Map(),
   conversationKeys: new Map(),
+  identityPrivateKey: null,
+  identityPublicKey: null,
+  publicKeys: new Map(),
   typingUsers: new Map()
 };
 
-export function addOrUpdateConversation(conversationId, { members, messages, lastMessageAt }) {
-  const existing = state.conversations.get(conversationId) || { members: [], messages: [], lastMessageAt: null };
+export function addOrUpdateConversation(conversationId, { members, messages, lastMessageAt, isGroup }) {
+  const existing = state.conversations.get(conversationId) || { members: [], messages: [], lastMessageAt: null, isGroup: false };
   state.conversations.set(conversationId, {
     members: members !== undefined ? members : existing.members,
     messages: messages !== undefined ? messages : existing.messages,
     lastMessageAt: lastMessageAt !== undefined ? lastMessageAt : existing.lastMessageAt,
+    isGroup: isGroup !== undefined ? isGroup : existing.isGroup,
   });
 }
 

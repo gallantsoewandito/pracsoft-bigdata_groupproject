@@ -68,6 +68,10 @@
             <span id="active-conversation-title" class="title is-5 mb-0">Select a user</span>
             <span id="active-conversation-members" class="is-size-7 has-text-grey ml-2"></span>
           </div>
+          <button id="leave-group-btn" class="button is-small is-danger is-light is-hidden" type="button">
+            <span class="icon"><i class="fas fa-right-from-bracket"></i></span>
+            <span>Leave group</span>
+          </button>
         </div>
 
         <div id="message-history" class="message-history"></div>
@@ -91,7 +95,7 @@
   </div>
 
   <!-- Group Chat Modal -->
-  <div id="group-modal" class="modal is-hidden">
+  <div id="group-modal" class="modal">
     <div class="modal-background" id="modal-background"></div>
     <div class="modal-card">
       <header class="modal-card-head">

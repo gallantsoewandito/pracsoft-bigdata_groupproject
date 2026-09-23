@@ -17,6 +17,10 @@ const {
     handleStartDM,
     handleCreateGroup,
     handleTyping
+    ,handleRegisterPublicKey
+    ,handleGetPublicKey
+    ,handleAcceptGroupInvite
+    ,handleLeaveGroup
 } = require('./handler');
 
 const app = express();
@@ -60,6 +64,12 @@ wss.on('connection', (ws) => {
                 case 'login':
                     await handleLogin(ws, data);
                     break;
+                case 'register_public_key':
+                    handleRegisterPublicKey(ws, data);
+                    break;
+                case 'get_public_key':
+                    handleGetPublicKey(ws, data);
+                    break;
                 case 'create_conversation':
                     await handleCreateConversation(ws);
                     break;
@@ -81,6 +91,12 @@ wss.on('connection', (ws) => {
                 case 'create_group':
                     await handleCreateGroup(ws, data);
                     break;
+                case 'accept_group_invite':
+                    await handleAcceptGroupInvite(ws, data);
+                    break;
+                case 'leave_group':
+                    await handleLeaveGroup(ws, data);
+                    break;
                 case 'ping':
                     send(ws, { type: 'pong' });
                     break;
@@ -96,6 +112,7 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
     if (ws.username) {
         clients.delete(ws.username);
+        publicKeys.delete(ws.username);
         for (const [conversationId, members] of conversations.entries()) {
             if (members.delete(ws.username)) {
                 broadcastMemberUpdate(conversationId);

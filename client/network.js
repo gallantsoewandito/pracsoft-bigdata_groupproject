@@ -1,4 +1,4 @@
-import { importKey, decryptText } from './crypto.js';
+import { generateKey, generateIdentityKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, importPublicKey, unwrapConversationKey, wrapConversationKey, decryptText } from './crypto.js';
 import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping } from './state.js';
 import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator } from './ui.js';
 
@@ -6,6 +6,24 @@ let ws = null;
 let requestedTarget = null;
 let isConnecting = false;
 let heartbeatInterval = null;
+
+async function initializeIdentity() {
+  const storageKey = `messaging-private-key-${state.username}`;
+  const publicStorageKey = `messaging-public-key-${state.username}`;
+  const storedPrivateKey = localStorage.getItem(storageKey);
+  const storedPublicKey = localStorage.getItem(publicStorageKey);
+  if (storedPrivateKey && storedPublicKey) {
+    state.identityPrivateKey = await importPrivateKey(storedPrivateKey);
+    state.identityPublicKey = await importPublicKey(storedPublicKey);
+  } else {
+    const pair = await generateIdentityKeyPair();
+    state.identityPrivateKey = pair.privateKey;
+    state.identityPublicKey = pair.publicKey;
+    localStorage.setItem(storageKey, await exportPrivateKey(pair.privateKey));
+    localStorage.setItem(publicStorageKey, await exportPublicKey(pair.publicKey));
+  }
+  send({ type: 'register_public_key', publicKey: await exportPublicKey(state.identityPublicKey) });
+}
 
 export function setRequestedTarget(user) {
   requestedTarget = user;
@@ -17,8 +35,10 @@ export function connect(username, password, authType) {
     return;
   }
   isConnecting = true;
-  const wsUrl = window.location.hostname === 'localhost' 
-    ? 'ws://localhost:3000' 
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+    || window.location.protocol === 'file:';
+  const wsUrl = isLocal
+    ? 'ws://localhost:3000'
     : 'wss://pracsoft-bigdata-groupproject.onrender.com';
   ws = new WebSocket(wsUrl);
 
@@ -73,6 +93,7 @@ export async function handleServerMessage(data) {
   switch (data.type) {
     case 'registered':
       state.username = data.username;
+      await initializeIdentity();
       renderLoggedIn();
       renderAll();
       break;
@@ -97,6 +118,20 @@ export async function handleServerMessage(data) {
         window.allUsers = data.users;
       }
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+      for (const username of window.allUsers || []) {
+        if (username !== state.username) send({ type: 'get_public_key', username });
+      }
+      break;
+
+    case 'public_key':
+      state.publicKeys.set(data.username, await importPublicKey(data.publicKey));
+      if (data.username === state.username) break;
+      const conversationKey = await generateKey();
+      const conversationKeys = {
+        [state.username]: await wrapConversationKey(conversationKey, state.identityPublicKey),
+        [data.username]: await wrapConversationKey(conversationKey, state.publicKeys.get(data.username))
+      };
+      window.send({ type: 'start_dm', targetUsername: data.username, conversationKeys });
       break;
 
     case 'my_conversations':
@@ -110,8 +145,16 @@ export async function handleServerMessage(data) {
       let key = state.conversationKeys.get(data.conversationId);
 
       if (data.conversationKey && !key) {
-        key = await importKey(data.conversationKey);
-        state.conversationKeys.set(data.conversationId, key);
+        try {
+          const wrappedKeys = JSON.parse(data.conversationKey);
+          const wrappedKey = wrappedKeys[state.username];
+          if (wrappedKey && state.identityPrivateKey) {
+            key = await unwrapConversationKey(wrappedKey, state.identityPrivateKey);
+            state.conversationKeys.set(data.conversationId, key);
+          }
+        } catch (error) {
+          console.warn('Conversation uses a legacy key format and cannot be decrypted.');
+        }
       }
 
       let decryptedHistory = [];
@@ -129,7 +172,8 @@ export async function handleServerMessage(data) {
       addOrUpdateConversation(data.conversationId, {
         members: data.members,
         messages: decryptedHistory,
-        lastMessageAt: lastMsg
+        lastMessageAt: lastMsg,
+        isGroup: data.isGroup
       });
       
       if (requestedTarget && data.members.includes(requestedTarget)) {
@@ -138,6 +182,20 @@ export async function handleServerMessage(data) {
       } else if (data.type === 'conversation_created') {
         setActiveConversation(data.conversationId);
       }
+      break;
+
+    case 'group_invite': {
+      const shouldJoin = window.confirm(`${data.inviter} invited you to join a group. Accept invitation?`);
+      if (shouldJoin) {
+        send({ type: 'accept_group_invite', conversationId: data.conversationId });
+      }
+      break;
+    }
+
+    case 'group_left':
+      state.conversationKeys.delete(data.conversationId);
+      removeConversation(data.conversationId);
+      renderAll();
       break;
 
     case 'typing':

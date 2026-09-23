@@ -1,7 +1,7 @@
 import { state, removeConversation } from './state.js';
 import { el, renderLoginError, renderAll, renderGroupModal } from './ui.js';
 import { connect, send, setActiveConversation, setRequestedTarget } from './network.js';
-import { generateKey, exportKey, encryptText } from './crypto.js';
+import { generateKey, encryptText, wrapConversationKey } from './crypto.js';
 
 // Expose functions to the window object so other modules can use them
 window.state = state;
@@ -15,7 +15,6 @@ const toggleAuthMode = document.getElementById('toggle-auth-mode');
 let isLoginMode = true;
 let typingTimeout = null;
 let isCurrentlyTyping = false;
-
 function stopTyping() {
   const conversationId = state.activeConversationId;
   clearTimeout(typingTimeout);
@@ -88,8 +87,14 @@ document.getElementById('modal-background').addEventListener('click', () => {
   el.groupModal.classList.remove('is-active');
 });
 
+document.getElementById('leave-group-btn').addEventListener('click', () => {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || !confirm('Leave this group?')) return;
+  send({ type: 'leave_group', conversationId });
+});
+
 // ✅ CREATE GROUP & CLOSE MODAL
-document.getElementById('confirm-group-btn').addEventListener('click', () => {
+document.getElementById('confirm-group-btn').addEventListener('click', async () => {
   const checkboxes = el.groupMemberList.querySelectorAll('input[type="checkbox"]:checked');
   const selectedUsers = Array.from(checkboxes).map(cb => cb.value);
   
@@ -98,7 +103,19 @@ document.getElementById('confirm-group-btn').addEventListener('click', () => {
     return;
   }
 
-  send({ type: 'create_group', members: selectedUsers });
+  const missingKeys = selectedUsers.filter(user => !state.publicKeys.has(user));
+  if (missingKeys.length > 0) {
+    alert('Encryption keys are not available for: ' + missingKeys.join(', '));
+    return;
+  }
+  const key = await generateKey();
+  const conversationKeys = {
+    [state.username]: await wrapConversationKey(key, state.identityPublicKey)
+  };
+  for (const username of selectedUsers) {
+    conversationKeys[username] = await wrapConversationKey(key, state.publicKeys.get(username));
+  }
+  send({ type: 'create_group', members: selectedUsers, conversationKeys });
   el.groupModal.classList.remove('is-active');
 });
 

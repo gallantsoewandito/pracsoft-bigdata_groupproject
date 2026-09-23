@@ -6,6 +6,77 @@ export async function generateKey() {
   );
 }
 
+export async function generateIdentityKeyPair() {
+  return await window.crypto.subtle.generateKey(
+    {
+      name: 'RSA-OAEP',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256'
+    },
+    true,
+    ['wrapKey', 'unwrapKey']
+  );
+}
+
+export async function exportPublicKey(key) {
+  const exported = await window.crypto.subtle.exportKey('spki', key);
+  return btoa(String.fromCharCode(...new Uint8Array(exported)));
+}
+
+export async function exportPrivateKey(key) {
+  const exported = await window.crypto.subtle.exportKey('pkcs8', key);
+  return btoa(String.fromCharCode(...new Uint8Array(exported)));
+}
+
+export async function importPrivateKey(encodedKey) {
+  const binary = atob(encodedKey);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return await window.crypto.subtle.importKey(
+    'pkcs8',
+    bytes,
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    true,
+    ['unwrapKey']
+  );
+}
+
+export async function importPublicKey(encodedKey) {
+  const binary = atob(encodedKey);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return await window.crypto.subtle.importKey(
+    'spki',
+    bytes,
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    true,
+    ['wrapKey']
+  );
+}
+
+export async function wrapConversationKey(key, publicKey) {
+  const wrapped = await window.crypto.subtle.wrapKey(
+    'raw',
+    key,
+    publicKey,
+    { name: 'RSA-OAEP' }
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(wrapped)));
+}
+
+export async function unwrapConversationKey(encodedKey, privateKey) {
+  const binary = atob(encodedKey);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return await window.crypto.subtle.unwrapKey(
+    'raw',
+    bytes,
+    privateKey,
+    { name: 'RSA-OAEP' },
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+}
+
 export async function exportKey(key) {
   const exported = await window.crypto.subtle.exportKey('raw', key);
   return Array.from(new Uint8Array(exported));

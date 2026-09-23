@@ -1,5 +1,4 @@
 import { state } from './state.js';
-import { generateKey, exportKey } from './crypto.js';
 
 export const el = {
   loginScreen: document.getElementById('login-screen'),
@@ -15,6 +14,7 @@ export const el = {
   groupModal: document.getElementById('group-modal'),
   groupMemberList: document.getElementById('group-member-list'),
   typingIndicator: document.getElementById('typing-indicator'),
+  leaveGroupButton: document.getElementById('leave-group-btn'),
 };
 
 export function renderTypingIndicator() {
@@ -85,10 +85,7 @@ export function renderOnlineUsers(users, onlineUsersSet) {
         console.log('Clicked user:', user);
         window.setRequestedTarget(user);
         
-        const key = await generateKey();
-        const rawKey = await exportKey(key);
-        
-        window.send({ type: 'start_dm', targetUsername: user, conversationKey: rawKey });
+        window.send({ type: 'get_public_key', username: user });
       }
     });
     
@@ -114,6 +111,7 @@ export function renderActiveConversation() {
   } else {
     el.activeTitle.textContent = "Group Chat";
   }
+  el.leaveGroupButton.classList.toggle('is-hidden', !convo.isGroup);
   
   el.activeMembers.textContent = `Members: ${convo.members.join(', ')}`;
 
