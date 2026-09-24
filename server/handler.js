@@ -684,7 +684,6 @@ async function handleCreateGroup(ws, data) {
 module.exports = {
     clients,
     conversations,
-    publicKeys,
     send,
     sendError,
     broadcastUserList,
