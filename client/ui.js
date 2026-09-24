@@ -212,7 +212,7 @@ export function renderOnlineUsers(users, onlineUsersSet) {
       flag.type = 'button';
       flag.className = 'invite-flag';
       flag.title = 'This user invited you to a group chat';
-      flag.textContent = '!!!';
+      flag.textContent = '!';
       flag.addEventListener('click', (e) => {
         e.stopPropagation();
         openInviteModal(user);
