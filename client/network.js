@@ -137,7 +137,6 @@ export async function handleServerMessage(data) {
   switch (data.type) {
     case 'registered':
       state.username = data.username;
-      await initializeIdentity();
       renderLoggedIn();
       renderAll();
       send({ type: 'get_pending_invites' });
