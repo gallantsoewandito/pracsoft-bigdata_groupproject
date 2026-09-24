@@ -84,8 +84,11 @@ export function renderOnlineUsers(users, onlineUsersSet) {
       if (user !== state.username) {
         console.log('Clicked user:', user);
         window.setRequestedTarget(user);
-        
-        window.send({ type: 'get_public_key', username: user });
+
+        const key = await generateKey();
+        const rawKey = await exportKey(key);
+
+        window.send({ type: 'start_dm', targetUsername: user, conversationKey: rawKey });
       }
     });
     

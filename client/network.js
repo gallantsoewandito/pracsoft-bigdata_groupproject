@@ -7,24 +7,6 @@ let requestedTarget = null;
 let isConnecting = false;
 let heartbeatInterval = null;
 
-async function initializeIdentity() {
-  const storageKey = `messaging-private-key-${state.username}`;
-  const publicStorageKey = `messaging-public-key-${state.username}`;
-  const storedPrivateKey = localStorage.getItem(storageKey);
-  const storedPublicKey = localStorage.getItem(publicStorageKey);
-  if (storedPrivateKey && storedPublicKey) {
-    state.identityPrivateKey = await importPrivateKey(storedPrivateKey);
-    state.identityPublicKey = await importPublicKey(storedPublicKey);
-  } else {
-    const pair = await generateIdentityKeyPair();
-    state.identityPrivateKey = pair.privateKey;
-    state.identityPublicKey = pair.publicKey;
-    localStorage.setItem(storageKey, await exportPrivateKey(pair.privateKey));
-    localStorage.setItem(publicStorageKey, await exportPublicKey(pair.publicKey));
-  }
-  send({ type: 'register_public_key', publicKey: await exportPublicKey(state.identityPublicKey) });
-}
-
 export function setRequestedTarget(user) {
   requestedTarget = user;
 }
@@ -118,9 +100,6 @@ export async function handleServerMessage(data) {
         window.allUsers = data.users;
       }
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
-      for (const username of window.allUsers || []) {
-        if (username !== state.username) send({ type: 'get_public_key', username });
-      }
       break;
 
     case 'public_key':

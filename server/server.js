@@ -5,7 +5,6 @@ const path = require('path');
 const {
     clients,
     conversations,
-    publicKeys,
     send,
     sendError,
     broadcastUserList,
@@ -18,8 +17,6 @@ const {
     handleStartDM,
     handleCreateGroup,
     handleTyping
-    ,handleRegisterPublicKey
-    ,handleGetPublicKey
     ,handleAcceptGroupInvite
     ,handleLeaveGroup
 } = require('./handler');
@@ -68,9 +65,6 @@ wss.on('connection', (ws) => {
                 case 'register_public_key':
                     handleRegisterPublicKey(ws, data);
                     break;
-                case 'get_public_key':
-                    handleGetPublicKey(ws, data);
-                    break;
                 case 'create_conversation':
                     await handleCreateConversation(ws);
                     break;
@@ -113,7 +107,6 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
     if (ws.username) {
         clients.delete(ws.username);
-        publicKeys.delete(ws.username);
         for (const [conversationId, members] of conversations.entries()) {
             if (members.delete(ws.username)) {
                 broadcastMemberUpdate(conversationId);

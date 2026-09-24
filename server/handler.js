@@ -4,7 +4,6 @@ const bcrypt = require('bcrypt')
 const clients = new Map();
 const conversations = new Map();
 const conversationKeys = new Map();
-const publicKeys = new Map();
 const groupInvites = new Map();
 const groupConversations = new Set();
 
@@ -49,25 +48,6 @@ function requireRegistered(ws) {
         return false;
     }
     return true;
-}
-
-function handleRegisterPublicKey(ws, data) {
-    if (!requireRegistered(ws)) return;
-    if (typeof data.publicKey !== 'string' || data.publicKey.length > 4096) {
-        sendError(ws, 'Invalid public key.');
-        return;
-    }
-    publicKeys.set(ws.username, data.publicKey);
-}
-
-function handleGetPublicKey(ws, data) {
-    if (!requireRegistered(ws)) return;
-    const publicKey = publicKeys.get(data.username);
-    if (!publicKey) {
-        sendError(ws, 'That user has not established encryption yet.');
-        return;
-    }
-    send(ws, { type: 'public_key', username: data.username, publicKey });
 }
 
 async function handleSignup(ws, data) {
@@ -582,14 +562,14 @@ async function handleStartDM(ws, data) {
         ]);
 
     conversations.set(newConvoId, new Set([ws.username, targetUsername]));
-    conversationKeys.set(newConvoId, data.conversationKeys || {});
+    conversationKeys.set(newConvoId, data.conversationKeys);
 
     send(ws, {
         type: 'conversation_joined',
         conversationId: newConvoId,
         members: [ws.username, targetUsername],
         history: [],
-        conversationKey: JSON.stringify(data.conversationKeys || {})
+        conversationKey: data.conversationKey
     });
 
     broadcastMemberUpdate(newConvoId);
@@ -700,8 +680,6 @@ module.exports = {
     handleTyping,
     handleStartDM,
     handleCreateGroup
-    ,handleRegisterPublicKey
-    ,handleGetPublicKey
     ,handleAcceptGroupInvite
     ,handleLeaveGroup
 };
