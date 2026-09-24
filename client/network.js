@@ -159,11 +159,22 @@ export async function handleServerMessage(data) {
 
       let decryptedHistory = [];
       if (data.history && data.history.length > 0) {
-      decryptedHistory = await Promise.all(data.history.map(async (msg) => {
-      msg.content = await decryptText(msg.content, key);
-      return msg;
-  }));
-}
+        try {
+          decryptedHistory = await Promise.all(data.history.map(async (msg) => {
+            try {
+              // Safely attempt decryption for each message
+              msg.content = await decryptText(msg.content, key);
+            } catch (msgError) {
+              console.warn('Failed to decrypt a specific message, keeping raw content:', msgError);
+              // If it fails, msg.content remains the encrypted string, which is safe
+            }
+            return msg;
+          }));
+        } catch (historyError) {
+          console.error('Failed to process message history array:', historyError);
+          decryptedHistory = data.history; // Fallback to raw history if the whole array fails
+        }
+      }
 
       const lastMsg = decryptedHistory.length > 0 
         ? decryptedHistory[decryptedHistory.length - 1].created_at 
@@ -210,7 +221,11 @@ export async function handleServerMessage(data) {
       let displayContent = data.content;
       
       if (msgKey) {
-        displayContent = await decryptText(data.content, msgKey);
+        try {
+          displayContent = await decryptText(data.content, msgKey);
+        } catch (error) {
+          console.warn('Failed to decrypt incoming message, displaying raw:', error);
+        }
       }
 
       const decryptedMsg = { ...data, content: displayContent };

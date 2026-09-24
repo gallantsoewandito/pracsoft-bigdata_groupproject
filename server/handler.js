@@ -73,6 +73,7 @@ function handleGetPublicKey(ws, data) {
 async function handleSignup(ws, data) {
     const username = (data.username || '').trim();
     const password = data.password;
+    const publicKey = data.publicKey;
 
     if (!username || !password) {
         sendError(ws, 'Username and password are required.');
@@ -113,6 +114,10 @@ async function handleSignup(ws, data) {
 
     ws.username = newUser.username;
     clients.set(newUser.username, { ws: ws, id: newUser.id, lastMessageTime: 0 });
+
+    if (publicKey) {
+        publicKeys.set(username, publicKey);
+    }
     
     send(ws, { type: 'registered', username: newUser.username });
     await loadInitialData(ws, newUser.id);
@@ -121,6 +126,7 @@ async function handleSignup(ws, data) {
 async function handleLogin(ws, data) {
     const username = (data.username || '').trim();
     const password = data.password;
+    const publicKey = data.publicKey;
 
     if (!username || !password) {
         sendError(ws, 'Username and password are required.');
@@ -154,6 +160,10 @@ async function handleLogin(ws, data) {
 
     ws.username = user.username;
     clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
+
+    if (publicKey) {
+        publicKeys.get(username, publicKey);
+    }
 
     send(ws, { type: 'registered', username: user.username });
     await loadInitialData(ws, user.id);
