@@ -1,4 +1,4 @@
-import { generateKey, generateIdentityKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, importPublicKey, unwrapConversationKey, wrapConversationKey, decryptText } from './crypto.js';
+import { generateKey, generateIdentityKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, importPublicKey, unwrapConversationKey, wrapConversationKey, decryptText, importKey } from './crypto.js';
 import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping } from './state.js';
 import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator } from './ui.js';
 
@@ -146,34 +146,30 @@ export async function handleServerMessage(data) {
 
       if (data.conversationKey && !key) {
         try {
-          const wrappedKeys = JSON.parse(data.conversationKey);
-          const wrappedKey = wrappedKeys[state.username];
-          if (wrappedKey && state.identityPrivateKey) {
-            key = await unwrapConversationKey(wrappedKey, state.identityPrivateKey);
-            state.conversationKeys.set(data.conversationId, key);
+          const parsedKey = JSON.parse(data.conversationKey);
+          key = await importKey(parsedKey);
+        } catch (e) {
+          try {
+            key = await importKey(data.conversationKey);
+          } catch (err) {
+            console.warn('Could not import conversation key, messages will show as raw text.');
           }
-        } catch (error) {
-          console.warn('Conversation uses a legacy key format and cannot be decrypted.');
+        }
+        if (key) {
+          state.conversationKeys.set(data.conversationId, key);
         }
       }
 
       let decryptedHistory = [];
       if (data.history && data.history.length > 0) {
-        try {
-          decryptedHistory = await Promise.all(data.history.map(async (msg) => {
-            try {
-              // Safely attempt decryption for each message
-              msg.content = await decryptText(msg.content, key);
-            } catch (msgError) {
-              console.warn('Failed to decrypt a specific message, keeping raw content:', msgError);
-              // If it fails, msg.content remains the encrypted string, which is safe
-            }
-            return msg;
-          }));
-        } catch (historyError) {
-          console.error('Failed to process message history array:', historyError);
-          decryptedHistory = data.history; // Fallback to raw history if the whole array fails
-        }
+        decryptedHistory = await Promise.all(data.history.map(async (msg) => {
+          try {
+            msg.content = await decryptText(msg.content, key);
+          } catch (msgError) {
+            // Safely fallback to raw text if decryption fails
+          }
+          return msg;
+        }));
       }
 
       const lastMsg = decryptedHistory.length > 0 
