@@ -8,6 +8,12 @@ const publicKeys = new Map();
 const groupInvites = new Map();
 const groupConversations = new Set();
 
+function isValidPublicKey(key) {
+    return typeof key === 'string' && key.length > 0 && key.length <= 4096;
+}
+
+const MAX_CONTENT_LENGTH = 2200;
+
 async function handlePing(ws) {
   send(ws, { type: 'pong' });
 }
@@ -26,7 +32,7 @@ function broadcastUserList() {
     const users = Array.from(clients.keys());
     const payload = JSON.stringify({ type: 'user_list', users });
     for (const clientData of clients.values()) {
-        if (clientData && clientData.ws && clientData.ws.readyState === WebSocket.OPEN) {
+        if (clientData && clientData.ws && clientData.ws.readyState === 1) {
             clientData.ws.send(payload);
         }
     }
@@ -53,7 +59,7 @@ function requireRegistered(ws) {
 
 function handleRegisterPublicKey(ws, data) {
     if (!requireRegistered(ws)) return;
-    if (typeof data.publicKey !== 'string' || data.publicKey.length > 4096) {
+    if (!isValidPublicKey(data.publicKey)) {
         sendError(ws, 'Invalid public key.');
         return;
     }
@@ -64,7 +70,7 @@ function handleGetPublicKey(ws, data) {
     if (!requireRegistered(ws)) return;
     const publicKey = publicKeys.get(data.username);
     if (!publicKey) {
-        sendError(ws, 'That user has not established encryption yet.');
+        send(ws, { type: 'public_key_unavailable', username: data.username });
         return;
     }
     send(ws, { type: 'public_key', username: data.username, publicKey });
@@ -77,6 +83,11 @@ async function handleSignup(ws, data) {
 
     if (!username || !password) {
         sendError(ws, 'Username and password are required.');
+        return;
+    }
+
+    if (!/^[A-Za-z0-9_.-]{3,20}$/.test(username)) {
+        sendError(ws, 'Username must be 3-20 characters: letters, numbers, underscore, dot or hyphen.');
         return;
     }
 
@@ -115,10 +126,10 @@ async function handleSignup(ws, data) {
     ws.username = newUser.username;
     clients.set(newUser.username, { ws: ws, id: newUser.id, lastMessageTime: 0 });
 
-    if (publicKey) {
-        publicKeys.set(username, publicKey);
+    if (isValidPublicKey(publicKey)) {
+        publicKeys.set(newUser.username, publicKey);
     }
-    
+
     send(ws, { type: 'registered', username: newUser.username });
     await loadInitialData(ws, newUser.id);
 }
@@ -154,6 +165,7 @@ async function handleLogin(ws, data) {
     if (clients.has(user.username)) {
         const oldClient = clients.get(user.username);
         send(oldClient.ws, { type: 'error', message: 'You have been logged in from another device.' });
+        oldClient.ws.username = null;
         oldClient.ws.close();
         clients.delete(user.username);
     }
@@ -161,8 +173,8 @@ async function handleLogin(ws, data) {
     ws.username = user.username;
     clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
 
-    if (publicKey) {
-        publicKeys.get(username, publicKey);
+    if (isValidPublicKey(publicKey)) {
+        publicKeys.set(user.username, publicKey);
     }
 
     send(ws, { type: 'registered', username: user.username });
@@ -334,6 +346,20 @@ async function handleAcceptGroupInvite(ws, data) {
     broadcastMemberUpdate(invite.conversationId);
 }
 
+function handleGetPendingInvites(ws) {
+    if (!requireRegistered(ws)) return;
+    const invites = groupInvites.get(ws.username) || [];
+    send(ws, { type: 'pending_invites', invites });
+}
+
+function handleDeclineGroupInvite(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const invites = groupInvites.get(ws.username) || [];
+    const remaining = invites.filter(item => item.conversationId !== data.conversationId);
+    groupInvites.set(ws.username, remaining);
+    send(ws, { type: 'group_invite_declined', conversationId: data.conversationId });
+}
+
 async function handleLeaveGroup(ws, data) {
     if (!requireRegistered(ws)) return;
     const clientData = clients.get(ws.username);
@@ -397,8 +423,8 @@ async function handleSendMessage(ws, data) {
         sendError(ws, 'Message cannot be empty.');
         return;
     }
-    if (cleanMessage.length > 512) {
-        sendError(ws, 'Message exceeds 512 character limit.');
+    if (cleanMessage.length > MAX_CONTENT_LENGTH) {
+        sendError(ws, 'Message is too long.');
         return;
     }
 
@@ -438,7 +464,7 @@ async function handleSendMessage(ws, data) {
     
     for (const username of members) {
         const client = clients.get(username);
-        if (client && client.ws && client.ws.readyState === WebSocket.OPEN) {
+        if (client && client.ws && client.ws.readyState === 1) {
             send(client.ws, payload);
         }
     }
@@ -699,9 +725,11 @@ module.exports = {
     handleSendMessage,
     handleTyping,
     handleStartDM,
-    handleCreateGroup
-    ,handleRegisterPublicKey
-    ,handleGetPublicKey
-    ,handleAcceptGroupInvite
-    ,handleLeaveGroup
+    handleCreateGroup,
+    handleRegisterPublicKey,
+    handleGetPublicKey,
+    handleAcceptGroupInvite,
+    handleLeaveGroup,
+    handleGetPendingInvites,
+    handleDeclineGroupInvite
 };
