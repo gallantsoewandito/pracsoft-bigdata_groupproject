@@ -5,6 +5,7 @@ const path = require('path');
 const {
     clients,
     conversations,
+    publicKeys,
     send,
     sendError,
     broadcastUserList,
