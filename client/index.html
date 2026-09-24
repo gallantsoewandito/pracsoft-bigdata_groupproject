@@ -49,8 +49,14 @@
   <div id="app" class="is-hidden">
     <div class="columns is-gapless is-mobile app-container">
       
-      <!-- Sidebar -->
+            <!-- Sidebar -->
       <div class="column is-3-widescreen is-4-tablet sidebar">
+
+        <div class="sidebar-section">
+          <h2 class="title is-6 is-uppercase has-text-grey">Conversations</h2>
+          <ul id="conversation-list" class="conversation-list"></ul>
+        </div>
+
         <div class="sidebar-section">
           <h2 class="title is-6 is-uppercase has-text-grey">Users</h2>
           <button id="new-group-chat-btn" class="button is-primary is-small is-fullwidth mb-3">
@@ -59,6 +65,7 @@
           </button>
           <ul id="online-users-list" class="user-list"></ul>
         </div>
+
       </div>
 
       <!-- Main Chat Panel -->
@@ -103,6 +110,12 @@
         <button class="delete" id="close-modal-btn" aria-label="close"></button>
       </header>
       <section class="modal-card-body">
+        <div class="field">
+          <label class="label" for="group-name-input">Group name</label>
+          <div class="control">
+            <input id="group-name-input" class="input" type="text" maxlength="40" placeholder="e.g. Project Team" autocomplete="off" />
+          </div>
+        </div>
         <p class="mb-3">Select members to invite:</p>
         <div id="group-member-list" class="group-member-list"></div>
       </section>
@@ -110,6 +123,17 @@
         <button id="confirm-group-btn" class="button is-success">Create Group</button>
         <button class="button" id="cancel-modal-btn">Cancel</button>
       </footer>
+    </div>
+  </div>
+
+  <div id="invite-modal" class="modal">
+    <div class="modal-background" id="invite-modal-background"></div>
+    <div class="modal-card">
+      <header class="modal-card-head">
+        <p class="modal-card-title">Group Invitation</p>
+        <button class="delete" id="close-invite-modal-btn" aria-label="close"></button>
+      </header>
+      <section class="modal-card-body" id="invite-modal-body"></section>
     </div>
   </div>
 

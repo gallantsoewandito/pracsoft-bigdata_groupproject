@@ -1,7 +1,8 @@
 import { state, removeConversation } from './state.js';
-import { el, renderLoginError, renderAll, renderGroupModal } from './ui.js';
-import { connect, send, setActiveConversation, setRequestedTarget } from './network.js';
+import { el, renderLoginError, renderAll, renderGroupModal, closeInviteModal } from './ui.js';
+import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId } from './network.js';
 import { generateKey, encryptText, wrapConversationKey } from './crypto.js';
+window.setRequestedGroupId = setRequestedGroupId;
 
 // Expose functions to the window object so other modules can use them
 window.state = state;
@@ -15,26 +16,31 @@ const toggleAuthMode = document.getElementById('toggle-auth-mode');
 let isLoginMode = true;
 let typingTimeout = null;
 let isCurrentlyTyping = false;
+let typingConversationId = null;
+
 function stopTyping() {
-  const conversationId = state.activeConversationId;
   clearTimeout(typingTimeout);
-  if (isCurrentlyTyping && conversationId) {
-    isCurrentlyTyping = false;
-    send({ type: 'typing', conversationId, isTyping: false });
+  if (isCurrentlyTyping && typingConversationId) {
+    send({ type: 'typing', conversationId: typingConversationId, isTyping: false });
   }
+  isCurrentlyTyping = false;
+  typingConversationId = null;
 }
 
 el.messageInput.addEventListener('input', () => {
   const conversationId = state.activeConversationId;
   if (!conversationId) return;
 
+  if (isCurrentlyTyping && typingConversationId !== conversationId) stopTyping();
+
   if (!isCurrentlyTyping) {
     isCurrentlyTyping = true;
+    typingConversationId = conversationId;
     send({ type: 'typing', conversationId, isTyping: true });
   }
 
   clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(stopTyping, 2000); // stop after 2s of inactivity
+  typingTimeout = setTimeout(stopTyping, 2000);
 });
 
 // Toggle between Login and Signup
@@ -70,6 +76,7 @@ authBtn.addEventListener('click', () => {
 
 // ✅ OPEN MODAL
 document.getElementById('new-group-chat-btn').addEventListener('click', () => {
+  document.getElementById('group-name-input').value = '';
   renderGroupModal(window.allUsers || []);
   el.groupModal.classList.add('is-active');
 });
@@ -93,8 +100,29 @@ document.getElementById('leave-group-btn').addEventListener('click', () => {
   send({ type: 'leave_group', conversationId });
 });
 
-// ✅ CREATE GROUP & CLOSE MODAL
+el.inviteModalBody.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const conversationId = btn.dataset.id;
+
+  if (btn.dataset.action === 'accept') {
+    window.setRequestedGroupId(conversationId);
+    send({ type: 'accept_group_invite', conversationId });
+  } else {
+    send({ type: 'decline_group_invite', conversationId });
+  }
+});
+
+document.getElementById('close-invite-modal-btn').addEventListener('click', closeInviteModal);
+document.getElementById('invite-modal-background').addEventListener('click', closeInviteModal);
+
 document.getElementById('confirm-group-btn').addEventListener('click', async () => {
+  const groupName = document.getElementById('group-name-input').value.trim();
+  if (!groupName) {
+    alert('Please enter a group name.');
+    return;
+  }
+
   const checkboxes = el.groupMemberList.querySelectorAll('input[type="checkbox"]:checked');
   const selectedUsers = Array.from(checkboxes).map(cb => cb.value);
   
@@ -105,7 +133,7 @@ document.getElementById('confirm-group-btn').addEventListener('click', async () 
 
   const missingKeys = selectedUsers.filter(user => !state.publicKeys.has(user));
   if (missingKeys.length > 0) {
-    alert('Encryption keys are not available for: ' + missingKeys.join(', '));
+    alert('These users must be online at least once before you can add them: ' + missingKeys.join(', '));
     return;
   }
   const key = await generateKey();
@@ -115,7 +143,7 @@ document.getElementById('confirm-group-btn').addEventListener('click', async () 
   for (const username of selectedUsers) {
     conversationKeys[username] = await wrapConversationKey(key, state.publicKeys.get(username));
   }
-  send({ type: 'create_group', members: selectedUsers, conversationKeys });
+  send({ type: 'create_group', name: groupName, members: selectedUsers, conversationKeys });
   el.groupModal.classList.remove('is-active');
 });
 
@@ -128,10 +156,11 @@ el.messageForm.addEventListener('submit', async (e) => {
   stopTyping(); // sending a message means you're done typing
 
   const key = state.conversationKeys.get(conversationId);
-  let payloadContent = content;
-  if (key) {
-    payloadContent = await encryptText(content, key);
+  if (!key) {
+    alert('This conversation is not decryptable on this device, so you cannot send messages in it.');
+    return;
   }
+  const payloadContent = await encryptText(content, key);
 
   send({ type: 'send_message', conversationId, content: payloadContent });
   el.messageInput.value = '';

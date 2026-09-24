@@ -71,16 +71,31 @@ html, body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  overflow: hidden; /* Prevent the whole sidebar from scrolling */
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    min-width: 200px;
+  }
 }
 
 .sidebar-section {
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
-  flex: 1; /* Take up ALL available vertical space */
-  height: 100%;
   overflow: hidden;
+}
+
+.sidebar-section:first-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar-section:last-child {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .sidebar-section .title {
@@ -89,7 +104,120 @@ html, body {
   letter-spacing: 0.05em;
   color: #7a7a7a;
   margin-bottom: 0.75rem;
-  flex-shrink: 0; /* Prevent title from shrinking */
+  flex-shrink: 0;
+}
+
+.conversation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.conversation-item {
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 0.15s ease;
+}
+
+.conversation-item:hover {
+  background-color: #f5f7fa;
+}
+
+.conversation-item.active {
+  background-color: #e8f0fe;
+  border-left: 3px solid #3273dc;
+}
+
+.conversation-icon {
+  color: #7a7a7a;
+  width: 1.1rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.conversation-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.conversation-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #363636;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation-preview {
+  font-size: 0.75rem;
+  color: #7a7a7a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unread-badge {
+  background: #3273dc;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0 0.45rem;
+  min-width: 1.3rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.invite-flag {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: none;
+  border-radius: 50%;
+  background: #ffdd57;
+  color: #946c00;
+  font-weight: 800;
+  font-size: 0.8rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.invite-flag:hover {
+  background: #ffd83d;
+}
+
+.invite-item {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  color: #363636;
+  border-radius: 8px;
+  background-color: #fffbe6;
+  border: 1px solid #ffe58f;
+  margin-bottom: 0.5rem;
+}
+
+.invite-item .invite-text {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.invite-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.invite-actions .button {
+  flex: 1;
+  font-size: 0.75rem;
 }
 
 #new-group-chat-btn {
@@ -116,8 +244,16 @@ html, body {
   display: flex;
   align-items: center;
   cursor: pointer;
+  border-left: 3px solid transparent;
   border-radius: 8px;
   transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.user-list-item span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-list-item:hover {
@@ -309,33 +445,31 @@ html, body {
   transform: scale(0.96);
 }
 
-/* =========================================
-   8. Custom Scrollbars (Webkit)
-   ========================================= */
 .message-history::-webkit-scrollbar,
-.user-list::-webkit-scrollbar {
+.user-list::-webkit-scrollbar,
+.conversation-list::-webkit-scrollbar {
   width: 6px;
 }
 
 .message-history::-webkit-scrollbar-track,
-.user-list::-webkit-scrollbar-track {
+.user-list::-webkit-scrollbar-track,
+.conversation-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .message-history::-webkit-scrollbar-thumb,
-.user-list::-webkit-scrollbar-thumb {
+.user-list::-webkit-scrollbar-thumb,
+.conversation-list::-webkit-scrollbar-thumb {
   background-color: #cbd5e0;
   border-radius: 10px;
 }
 
 .message-history::-webkit-scrollbar-thumb:hover,
-.user-list::-webkit-scrollbar-thumb:hover {
+.user-list::-webkit-scrollbar-thumb:hover,
+.conversation-list::-webkit-scrollbar-thumb:hover {
   background-color: #a0aec0;
 }
 
-/* =========================================
-   9. Group Chat Modal Styles
-   ========================================= */
 .group-member-list {
   max-height: 300px;
   overflow-y: auto;

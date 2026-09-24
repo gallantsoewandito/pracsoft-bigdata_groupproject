@@ -16,14 +16,16 @@ const {
     handleSendMessage,
     handleStartDM,
     handleCreateGroup,
-    handleTyping
-    ,handleAcceptGroupInvite
-    ,handleLeaveGroup
+    handleTyping,
+    handleAcceptGroupInvite,
+    handleLeaveGroup,
+    handleGetPendingInvites,
+    handleDeclineGroupInvite
 } = require('./handler');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ server, maxPayload: 64 * 1024 });
 
 app.use(express.static(path.join(__dirname, '../client')));
 
@@ -35,12 +37,15 @@ setInterval(() => {
         ws.isAlive = false;
         ws.ping();
     });
-}, 30000)
+}, 30000);
 
 wss.on('connection', (ws) => {
     ws.isAlive = true;
     ws.on('pong', () => {
         ws.isAlive = true;
+    });
+    ws.on('error', (err) => {
+        console.error('WebSocket error:', err.message);
     });
     console.log('New client connected');
     ws.username = null;
@@ -54,7 +59,17 @@ wss.on('connection', (ws) => {
             return;
         }
 
+        if (!data || typeof data !== 'object') {
+            sendError(ws, 'Malformed message.');
+            return;
+        }
+
         try {
+            if ((data.type === 'signup' || data.type === 'login') && ws.username) {
+                sendError(ws, 'You are already logged in.');
+                return;
+            }
+
             switch (data.type) {
                 case 'signup':
                     await handleSignup(ws, data);
@@ -75,19 +90,22 @@ wss.on('connection', (ws) => {
                     await handleSendMessage(ws, data);
                     break;
                 case 'typing':
-                    await handleTyping(ws, data);
+                    handleTyping(ws, data);
                     break;
-                case 'fetch_history':
-                    await handleFetchHistory(ws, data);
-                    break;
-                case 'start_dm': 
-                    await handleStartDM(ws, data); 
+                case 'start_dm':
+                    await handleStartDM(ws, data);
                     break;
                 case 'create_group':
                     await handleCreateGroup(ws, data);
                     break;
                 case 'accept_group_invite':
                     await handleAcceptGroupInvite(ws, data);
+                    break;
+                case 'get_pending_invites':
+                    handleGetPendingInvites(ws);
+                    break;
+                case 'decline_group_invite':
+                    handleDeclineGroupInvite(ws, data);
                     break;
                 case 'leave_group':
                     await handleLeaveGroup(ws, data);
@@ -105,23 +123,25 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
-    if (ws.username) {
-        clients.delete(ws.username);
-        for (const [conversationId, members] of conversations.entries()) {
-            if (members.delete(ws.username)) {
-                broadcastMemberUpdate(conversationId);
-                for (const username of members) {
-                    const client = clients.get(username);
-                    if (client && client.ws && client.ws.readyState === 1) {
-                        send(client.ws, { type: 'typing', conversationId, username: ws.username, isTyping: false });
+        if (ws.username) {
+            clients.delete(ws.username);
+            for (const [conversationId, members] of conversations.entries()) {
+                if (members.delete(ws.username)) {
+                    broadcastMemberUpdate(conversationId);
+                    for (const username of members) {
+                        const client = clients.get(username);
+                        if (client && client.ws && client.ws.readyState === 1) {
+                            send(client.ws, { type: 'typing', conversationId, username: ws.username, isTyping: false });
+                        }
                     }
                 }
             }
+            broadcastUserList();
         }
-        broadcastUserList();
-    }
+    });
 });
-});
+
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

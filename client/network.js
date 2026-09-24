@@ -1,14 +1,46 @@
-import { generateKey, generateIdentityKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, importPublicKey, unwrapConversationKey, wrapConversationKey, decryptText, importKey } from './crypto.js';
-import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping } from './state.js';
-import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator } from './ui.js';
+import { generateKey, generateIdentityKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, importPublicKey, unwrapConversationKey, wrapConversationKey, decryptText } from './crypto.js';
+import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping, addInvite, removeInvite, incrementUnread, clearUnread } from './state.js';
+import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator, renderInvites, renderConversationList } from './ui.js';
 
 let ws = null;
 let requestedTarget = null;
+let requestedGroupId = null;
 let isConnecting = false;
 let heartbeatInterval = null;
+let messageQueue = Promise.resolve();
+
+async function safeDecrypt(content, key) {
+  try {
+    return await decryptText(content, key);
+  } catch (err) {
+    console.warn('Failed to decrypt message, keeping raw content:', err);
+    return content;
+  }
+}
+
+async function createIdentity() {
+  const storageKey = `messaging-private-key-${state.username}`;
+  const publicStorageKey = `messaging-public-key-${state.username}`;
+  const pair = await generateIdentityKeyPair();
+  state.identityPrivateKey = pair.privateKey;
+  state.identityPublicKey = pair.publicKey;
+  localStorage.setItem(storageKey, await exportPrivateKey(pair.privateKey));
+  localStorage.setItem(publicStorageKey, await exportPublicKey(pair.publicKey));
+}
 
 export function setRequestedTarget(user) {
   requestedTarget = user;
+}
+
+export function setRequestedGroupId(conversationId) {
+  requestedGroupId = conversationId;
+}
+
+function findDm(user) {
+  for (const [id, c] of state.conversations) {
+    if (!c.isGroup && c.members.includes(user)) return id;
+  }
+  return null;
 }
 
 export function connect(username, password, authType) {
@@ -17,44 +49,74 @@ export function connect(username, password, authType) {
     return;
   }
   isConnecting = true;
+
+  clearInterval(heartbeatInterval);
+  if (ws) {
+    const old = ws;
+    ws = null;
+    old.close();
+  }
+
   const isLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
     || window.location.protocol === 'file:';
   const wsUrl = isLocal
     ? 'ws://localhost:3000'
     : 'wss://pracsoft-bigdata-groupproject.onrender.com';
-  ws = new WebSocket(wsUrl);
+  const socket = new WebSocket(wsUrl);
+  ws = socket;
 
-  ws.addEventListener('open', () => {
+  socket.addEventListener('open', () => {
+    if (socket !== ws) return;
     isConnecting = false;
     heartbeatInterval = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'ping' }));
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping' }));
       }
-    }, 25000)
+    }, 25000);
 
     send({ type: authType, username, password });
   });
 
-  ws.addEventListener('message', (event) => {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'pong') {
+  socket.addEventListener('message', (event) => {
+    if (socket !== ws) return;
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch (err) {
+      console.warn('Ignoring malformed server message:', err);
       return;
     }
-    handleServerMessage(data);
+
+    if (data.type === 'pong') return;
+
+    messageQueue = messageQueue
+      .then(() => handleServerMessage(data))
+      .catch(err => { console.error('Handler failed:', err); renderLoginError('Error: ' + err.message); });
   });
 
-  ws.addEventListener('close', () => {
+  socket.addEventListener('close', () => {
+    if (socket !== ws) return;
     isConnecting = false;
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval)
-    }
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+    requestedTarget = null;
+    requestedGroupId = null;
+    state.onlineUsers = new Set();
+    state.typingUsers.clear();
+    state.username = null;
+    state.activeConversationId = null;
+    state.conversations.clear();
+    state.conversationKeys.clear();
+    state.publicKeys.clear();
+    state.pendingInvites.clear();
+    state.unreadCounts.clear();
     renderLoginError('Disconnected from server.');
     document.getElementById('app').classList.add('is-hidden');
     document.getElementById('login-screen').classList.remove('is-hidden');
   });
 
-  ws.addEventListener('error', () => {
+  socket.addEventListener('error', () => {
+    if (socket !== ws) return;
     isConnecting = false;
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
@@ -78,6 +140,7 @@ export async function handleServerMessage(data) {
       await initializeIdentity();
       renderLoggedIn();
       renderAll();
+      send({ type: 'get_pending_invites' });
       break;
 
     case 'error':
@@ -93,6 +156,11 @@ export async function handleServerMessage(data) {
         state.onlineUsers = new Set(data.users);
       }
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+      for (const username of state.onlineUsers) {
+        if (username !== state.username && !state.publicKeys.has(username)) {
+          send({ type: 'get_public_key', username });
+        }
+      }
       break;
 
     case 'full_user_list':
@@ -102,16 +170,34 @@ export async function handleServerMessage(data) {
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
 
-    case 'public_key':
+    case 'public_key': {
       state.publicKeys.set(data.username, await importPublicKey(data.publicKey));
-      if (data.username === state.username) break;
+      if (data.username === state.username || requestedTarget !== data.username) break;
+
+      const existingId = findDm(data.username);
+      if (existingId) {
+        requestedTarget = null;
+        setActiveConversation(existingId);
+        break;
+      }
+
       const conversationKey = await generateKey();
       const conversationKeys = {
         [state.username]: await wrapConversationKey(conversationKey, state.identityPublicKey),
         [data.username]: await wrapConversationKey(conversationKey, state.publicKeys.get(data.username))
       };
-      window.send({ type: 'start_dm', targetUsername: data.username, conversationKeys });
+      send({ type: 'start_dm', targetUsername: data.username, conversationKeys });
       break;
+    }
+
+    case 'public_key_unavailable': {
+      if (requestedTarget !== data.username) break;
+      const existingId = findDm(data.username);
+      requestedTarget = null;
+      if (existingId) setActiveConversation(existingId);
+      else alert(`${data.username} must be online at least once before you can start an encrypted chat.`);
+      break;
+    }
 
     case 'my_conversations':
       for (const conversationId of data.conversationIds) {
@@ -120,7 +206,7 @@ export async function handleServerMessage(data) {
       break;
 
     case 'conversation_created':
-    case 'conversation_joined':
+    case 'conversation_joined': {
       let key = state.conversationKeys.get(data.conversationId);
 
       if (data.conversationKey && !key) {
@@ -151,35 +237,58 @@ export async function handleServerMessage(data) {
         }));
       }
 
-      const lastMsg = decryptedHistory.length > 0 
-        ? decryptedHistory[decryptedHistory.length - 1].created_at 
+      const lastMsg = decryptedHistory.length > 0
+        ? decryptedHistory[decryptedHistory.length - 1].created_at
         : (data.createdAt || null);
 
       addOrUpdateConversation(data.conversationId, {
         members: data.members,
         messages: decryptedHistory,
         lastMessageAt: lastMsg,
-        isGroup: data.isGroup
+        isGroup: data.isGroup,
+        name: data.name
       });
-      
-      if (requestedTarget && data.members.includes(requestedTarget)) {
+      renderConversationList();
+
+      if (requestedGroupId && data.conversationId === requestedGroupId) {
+        setActiveConversation(data.conversationId);
+        requestedGroupId = null;
+      } else if (requestedTarget && !data.isGroup && data.members.includes(requestedTarget)) {
         setActiveConversation(data.conversationId);
         requestedTarget = null;
       } else if (data.type === 'conversation_created') {
         setActiveConversation(data.conversationId);
       }
       break;
+    }
 
     case 'group_invite': {
-      const shouldJoin = window.confirm(`${data.inviter} invited you to join a group. Accept invitation?`);
-      if (shouldJoin) {
-        send({ type: 'accept_group_invite', conversationId: data.conversationId });
-      }
+      addInvite({ conversationId: data.conversationId, inviter: data.inviter, name: data.name, conversationKey: data.conversationKey });
+      renderInvites();
       break;
     }
 
+    case 'pending_invites':
+      state.pendingInvites.clear();
+      for (const invite of data.invites || []) {
+        addInvite(invite);
+      }
+      renderInvites();
+      break;
+
+    case 'group_invite_declined':
+      removeInvite(data.conversationId);
+      renderInvites();
+      break;
+
+    case 'group_invite_accepted':
+      removeInvite(data.conversationId);
+      renderInvites();
+      break;
+
     case 'group_left':
       state.conversationKeys.delete(data.conversationId);
+      state.unreadCounts.delete(data.conversationId);
       removeConversation(data.conversationId);
       renderAll();
       break;
@@ -187,42 +296,46 @@ export async function handleServerMessage(data) {
     case 'typing':
       setTyping(data.conversationId, data.username, data.isTyping);
       if (data.conversationId === state.activeConversationId) {
-      renderTypingIndicator();
+        renderTypingIndicator();
       }
       break;
 
-    case 'new_message':
-      const msgKey = state.conversationKeys.get(data.conversationId);
-      let displayContent = data.content;
-      
-      if (msgKey) {
-        try {
-          displayContent = await decryptText(data.content, msgKey);
-        } catch (error) {
-          console.warn('Failed to decrypt incoming message, displaying raw:', error);
-        }
+    case 'new_message': {
+      if (!state.conversations.has(data.conversationId)) {
+        if (data.senderId !== state.username) incrementUnread(data.conversationId);
+        send({ type: 'join_conversation', conversationId: data.conversationId });
+        break;
       }
 
-      const decryptedMsg = { ...data, content: displayContent };
-      appendMessage(data.conversationId, decryptedMsg);
+      const msgKey = state.conversationKeys.get(data.conversationId);
+      const displayContent = msgKey ? await safeDecrypt(data.content, msgKey) : data.content;
+
+      appendMessage(data.conversationId, { ...data, content: displayContent });
 
       setTyping(data.conversationId, data.senderId, false);
       if (data.conversationId === state.activeConversationId) {
-      renderTypingIndicator();
-}
-      
+        renderTypingIndicator();
+      }
+
       const convo = state.conversations.get(data.conversationId);
       if (convo) convo.lastMessageAt = data.createdAt;
+
+      if (data.conversationId !== state.activeConversationId && data.senderId !== state.username) {
+        incrementUnread(data.conversationId);
+      }
 
       if (data.conversationId === state.activeConversationId) {
         renderActiveConversation();
       }
-
+      renderConversationList();
       break;
+    }
 
     case 'member_update':
+      if (!state.conversations.has(data.conversationId)) break;
       addOrUpdateConversation(data.conversationId, { members: data.members });
       renderActiveConversation();
+      renderConversationList();
       break;
 
     default:
@@ -232,6 +345,8 @@ export async function handleServerMessage(data) {
 
 export function setActiveConversation(conversationId) {
   state.activeConversationId = conversationId;
+  clearUnread(conversationId);
   renderActiveConversation();
   renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+  renderConversationList();
 }

@@ -1,6 +1,6 @@
 export const state = {
   username: null,
-  onlineUsers: [],
+  onlineUsers: new Set(),
   conversations: new Map(),
   activeConversationId: null,
   unreadCounts: new Map(),
@@ -8,16 +8,18 @@ export const state = {
   identityPrivateKey: null,
   identityPublicKey: null,
   publicKeys: new Map(),
-  typingUsers: new Map()
+  typingUsers: new Map(),
+  pendingInvites: new Map()
 };
 
-export function addOrUpdateConversation(conversationId, { members, messages, lastMessageAt, isGroup }) {
-  const existing = state.conversations.get(conversationId) || { members: [], messages: [], lastMessageAt: null, isGroup: false };
+export function addOrUpdateConversation(conversationId, { members, messages, lastMessageAt, isGroup, name }) {
+  const existing = state.conversations.get(conversationId) || { members: [], messages: [], lastMessageAt: null, isGroup: false, name: null };
   state.conversations.set(conversationId, {
     members: members !== undefined ? members : existing.members,
     messages: messages !== undefined ? messages : existing.messages,
     lastMessageAt: lastMessageAt !== undefined ? lastMessageAt : existing.lastMessageAt,
     isGroup: isGroup !== undefined ? isGroup : existing.isGroup,
+    name: name !== undefined ? name : existing.name,
   });
 }
 
@@ -52,4 +54,12 @@ export function setTyping(conversationId, username, isTyping) {
   }
   if (isTyping) set.add(username);
   else set.delete(username);
+}
+
+export function addInvite(invite) {
+  state.pendingInvites.set(invite.conversationId, invite);
+}
+
+export function removeInvite(conversationId) {
+  state.pendingInvites.delete(conversationId);
 }
