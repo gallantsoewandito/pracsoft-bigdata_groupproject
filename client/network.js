@@ -1,6 +1,6 @@
 import { generateKey, generateIdentityKeyPair, exportPublicKey, exportPrivateKey, importPrivateKey, importPublicKey, unwrapConversationKey, wrapConversationKey, decryptText } from './crypto.js';
 import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping, addInvite, removeInvite, incrementUnread, clearUnread } from './state.js';
-import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator, renderInvites, renderConversationList } from './ui.js';
+import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator, renderInvites } from './ui.js';
 
 let ws = null;
 let requestedTarget = null;
@@ -247,7 +247,6 @@ export async function handleServerMessage(data) {
         isGroup: data.isGroup,
         name: data.name
       });
-      renderConversationList();
 
       if (requestedGroupId && data.conversationId === requestedGroupId) {
         setActiveConversation(data.conversationId);
@@ -326,7 +325,6 @@ export async function handleServerMessage(data) {
       if (data.conversationId === state.activeConversationId) {
         renderActiveConversation();
       }
-      renderConversationList();
       break;
     }
 
@@ -334,7 +332,6 @@ export async function handleServerMessage(data) {
       if (!state.conversations.has(data.conversationId)) break;
       addOrUpdateConversation(data.conversationId, { members: data.members });
       renderActiveConversation();
-      renderConversationList();
       break;
 
     default:
@@ -347,5 +344,4 @@ export function setActiveConversation(conversationId) {
   clearUnread(conversationId);
   renderActiveConversation();
   renderOnlineUsers(window.allUsers || [], state.onlineUsers);
-  renderConversationList();
 }
