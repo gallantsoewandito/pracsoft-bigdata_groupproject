@@ -28,59 +28,40 @@ export function renderLoggedIn() {
 export function renderOnlineUsers(users, onlineUsersSet) {
   if (!el.onlineUsersList) return;
   el.onlineUsersList.innerHTML = '';
-  
-  const safeUsers = Array.isArray(users) ? users : [];
+
   const safeSet = onlineUsersSet instanceof Set ? onlineUsersSet : new Set();
 
-  // Check if current active chat is a DM
-  const activeConvo = state.conversations.get(state.activeConversationId);
-  const isDmActive = activeConvo && activeConvo.members.length === 2;
-  const activeDmPartner = isDmActive ? activeConvo.members.find(m => m !== state.username) : null;
-
-  // Sort users: Active chats first (by latest message), then alphabetical
-  const sortedUsers = [...safeUsers].sort((a, b) => {
-    let timeA = 0;
-    let timeB = 0;
-
-    for (const [, convo] of state.conversations) {
-      if (convo.members.length === 2 && convo.members.includes(a) && convo.members.includes(state.username)) {
-        timeA = convo.lastMessageAt ? new Date(convo.lastMessageAt).getTime() : 0;
-      }
-      if (convo.members.length === 2 && convo.members.includes(b) && convo.members.includes(state.username)) {
-        timeB = convo.lastMessageAt ? new Date(convo.lastMessageAt).getTime() : 0;
-      }
-    }
-
-    if (timeA === 0 && timeB === 0) return a.localeCompare(b);
-    if (timeA === 0) return 1;
-    if (timeB === 0) return -1;
+  // Get all conversations and sort them by the most recent message
+  const sortedConversations = Array.from(state.conversations.entries()).sort((a, b) => {
+    const timeA = a[1].lastMessageAt ? new Date(a[1].lastMessageAt).getTime() : 0;
+    const timeB = b[1].lastMessageAt ? new Date(b[1].lastMessageAt).getTime() : 0;
     return timeB - timeA;
   });
 
-  for (const user of sortedUsers) {
-    if (user === state.username) continue; // Don't show yourself in the user list
-
+  for (const [id, convo] of sortedConversations) {
     const li = document.createElement('li');
-    const isOnline = safeSet.has(user);
-    const isActive = user === activeDmPartner;
-    
-    li.innerHTML = `<span class="status-dot ${isOnline ? 'online' : 'offline'}"></span> ${user}`;
+    const isActive = id === state.activeConversationId;
     li.className = `user-list-item ${isActive ? 'active' : ''}`;
-    
-    li.addEventListener('click', async () => {
-      if (user !== state.username) {
-        console.log('Clicked user:', user);
-        window.setRequestedTarget(user);
-        
-        // Generate a single, simple AES key for this conversation
-        const { generateKey, exportKey } = await import('./crypto.js');
-        const key = await generateKey();
-        const rawKey = await exportKey(key);
-        
-        window.send({ type: 'start_dm', targetUsername: user, conversationKey: rawKey });
-      }
+
+    let title = '';
+    let statusHtml = '';
+
+    if (convo.isGroup) {
+      title = convo.name || 'Group Chat';
+      statusHtml = '<span class="status-dot group-icon"></span>';
+    } else {
+      const partner = convo.members.find(m => m !== state.username);
+      title = partner || 'Unknown';
+      const isOnline = safeSet.has(partner);
+      statusHtml = `<span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>`;
+    }
+
+    li.innerHTML = `${statusHtml} ${title}`;
+
+    li.addEventListener('click', () => {
+      window.setActiveConversation(id);
     });
-    
+
     el.onlineUsersList.appendChild(li);
   }
 }

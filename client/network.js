@@ -250,7 +250,7 @@ export async function handleServerMessage(data) {
       }
       break;
 
-    case 'new_message': {
+        case 'new_message': {
       if (!state.conversations.has(data.conversationId)) {
         if (data.senderId !== state.username) incrementUnread(data.conversationId);
         send({ type: 'join_conversation', conversationId: data.conversationId });
@@ -258,15 +258,19 @@ export async function handleServerMessage(data) {
       }
 
       const msgKey = state.conversationKeys.get(data.conversationId);
-      const displayContent = msgKey ? await safeDecrypt(data.content, msgKey) : data.content;
+      let displayContent = data.content;
+      
       if (msgKey) {
-        try { displayContent = await decryptText(data.content, msgKey); } 
-        catch (error) { console.warn('Failed to decrypt incoming message.'); }
+        try { 
+          displayContent = await decryptText(data.content, msgKey); 
+        } catch (error) { 
+          console.warn('Failed to decrypt incoming message.'); 
+        }
       }
 
       appendMessage(data.conversationId, { ...data, content: displayContent });
-
       setTyping(data.conversationId, data.senderId, false);
+      
       if (data.conversationId === state.activeConversationId) {
         renderTypingIndicator();
       }
