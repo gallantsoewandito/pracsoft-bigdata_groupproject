@@ -163,10 +163,13 @@ export async function handleServerMessage(data) {
       if (data.conversationKey && !key) {
         try {
           let rawKeyArray = data.conversationKey;
-          
-          // If the server sent a string, parse it into an array
+
           if (typeof rawKeyArray === 'string') {
             rawKeyArray = JSON.parse(rawKeyArray);
+          }
+
+          if (rawKeyArray && typeof rawKeyArray === 'object' && !Array.isArray(rawKeyArray)) {
+            rawKeyArray = Object.values(rawKeyArray);
           }
           
           // Ensure it is actually an array of numbers
