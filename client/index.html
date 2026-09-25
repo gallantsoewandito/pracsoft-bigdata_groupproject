@@ -51,21 +51,15 @@
       
             <!-- Sidebar -->
       <div class="column is-3-widescreen is-4-tablet sidebar">
-
         <div class="sidebar-section">
-          <h2 class="title is-6 is-uppercase has-text-grey">Conversations</h2>
-          <ul id="conversation-list" class="conversation-list"></ul>
-        </div>
-
-        <div class="sidebar-section">
-          <h2 class="title is-6 is-uppercase has-text-grey">Users</h2>
           <button id="new-group-chat-btn" class="button is-primary is-small is-fullwidth mb-3">
             <span class="icon"><i class="fas fa-users"></i></span>
             <span>New Group Chat</span>
           </button>
+          
+          <!-- This single list will hold both groups and direct messages -->
           <ul id="online-users-list" class="user-list"></ul>
         </div>
-
       </div>
 
       <!-- Main Chat Panel -->

@@ -162,17 +162,22 @@ export async function handleServerMessage(data) {
 
       if (data.conversationKey && !key) {
         try {
-          const parsedKey = JSON.parse(data.conversationKey);
-          key = await importKey(parsedKey);
-        } catch (e) {
-          try {
-            key = await importKey(data.conversationKey);
-          } catch (err) {
-            console.warn('Could not import conversation key, messages will show as raw text.');
+          let rawKeyArray = data.conversationKey;
+          
+          // If the server sent a string, parse it into an array
+          if (typeof rawKeyArray === 'string') {
+            rawKeyArray = JSON.parse(rawKeyArray);
           }
-        }
-        if (key) {
-          state.conversationKeys.set(data.conversationId, key);
+          
+          // Ensure it is actually an array of numbers
+          if (Array.isArray(rawKeyArray)) {
+            key = await importKey(rawKeyArray);
+            state.conversationKeys.set(data.conversationId, key);
+          } else {
+            console.warn('Key is not an array format.');
+          }
+        } catch (err) {
+          console.warn('Could not import conversation key, messages will show as raw text.', err);
         }
       }
 
