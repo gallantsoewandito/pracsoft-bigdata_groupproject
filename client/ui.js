@@ -30,8 +30,12 @@ export function renderOnlineUsers(users, onlineUsersSet) {
   el.onlineUsersList.innerHTML = '';
 
   const safeSet = onlineUsersSet instanceof Set ? onlineUsersSet : new Set();
+  const safeUsers = Array.isArray(users) ? users : [];
 
-  // Get all conversations and sort them by the most recent message
+  // Track which users already have a direct message conversation to avoid duplicates
+  const usersWithDm = new Set();
+
+  // 1. Render all active conversations (Groups and Direct Messages)
   const sortedConversations = Array.from(state.conversations.entries()).sort((a, b) => {
     const timeA = a[1].lastMessageAt ? new Date(a[1].lastMessageAt).getTime() : 0;
     const timeB = b[1].lastMessageAt ? new Date(b[1].lastMessageAt).getTime() : 0;
@@ -52,14 +56,31 @@ export function renderOnlineUsers(users, onlineUsersSet) {
     } else {
       const partner = convo.members.find(m => m !== state.username);
       title = partner || 'Unknown';
+      usersWithDm.add(partner);
       const isOnline = safeSet.has(partner);
       statusHtml = `<span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>`;
     }
 
     li.innerHTML = `${statusHtml} ${title}`;
+    li.addEventListener('click', () => window.setActiveConversation(id));
+    el.onlineUsersList.appendChild(li);
+  }
 
-    li.addEventListener('click', () => {
-      window.setActiveConversation(id);
+  // 2. Render remaining users from the database who do not have a chat yet
+  const remainingUsers = safeUsers.filter(u => u !== state.username && !usersWithDm.has(u));
+
+  for (const user of remainingUsers) {
+    const li = document.createElement('li');
+    const isOnline = safeSet.has(user);
+    li.className = 'user-list-item';
+    li.innerHTML = `<span class="status-dot ${isOnline ? 'online' : 'offline'}"></span> ${user}`;
+
+    li.addEventListener('click', async () => {
+      window.setRequestedTarget(user);
+      const { generateKey, exportKey } = await import('./crypto.js');
+      const key = await generateKey();
+      const rawKey = await exportKey(key);
+      window.send({ type: 'start_dm', targetUsername: user, conversationKey: rawKey });
     });
 
     el.onlineUsersList.appendChild(li);
