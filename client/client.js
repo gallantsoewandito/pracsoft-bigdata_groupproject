@@ -1,7 +1,7 @@
 import { state, removeConversation } from './state.js';
 import { el, renderLoginError, renderAll, renderGroupModal, closeInviteModal } from './ui.js';
 import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId } from './network.js';
-import { generateKey, encryptText, wrapConversationKey } from './crypto.js';
+import { generateKey, encryptText, exportKey } from './crypto.js';
 window.setRequestedGroupId = setRequestedGroupId;
 
 // Expose functions to the window object so other modules can use them
@@ -9,6 +9,7 @@ window.state = state;
 window.send = send;
 window.setActiveConversation = setActiveConversation;
 window.setRequestedTarget = setRequestedTarget;
+window.setRequestedGroupId = setRequestedGroupId;
 
 const passwordInput = document.getElementById('password-input');
 const authBtn = document.getElementById('auth-btn');
@@ -131,18 +132,9 @@ document.getElementById('confirm-group-btn').addEventListener('click', async () 
     return;
   }
 
-  const missingKeys = selectedUsers.filter(user => !state.publicKeys.has(user));
-  if (missingKeys.length > 0) {
-    alert('These users must be online at least once before you can add them: ' + missingKeys.join(', '));
-    return;
-  }
   const key = await generateKey();
-  const conversationKeys = {
-    [state.username]: await wrapConversationKey(key, state.identityPublicKey)
-  };
-  for (const username of selectedUsers) {
-    conversationKeys[username] = await wrapConversationKey(key, state.publicKeys.get(username));
-  }
+  const rawKey = await exportKey(key);
+
   send({ type: 'create_group', name: groupName, members: selectedUsers, conversationKeys });
   el.groupModal.classList.remove('is-active');
 });

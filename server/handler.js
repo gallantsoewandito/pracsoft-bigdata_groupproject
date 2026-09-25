@@ -7,10 +7,6 @@ const conversationKeys = new Map();
 const groupInvites = new Map();
 const groupConversations = new Set();
 
-function isValidPublicKey(key) {
-    return typeof key === 'string' && key.length > 0 && key.length <= 4096;
-}
-
 const MAX_CONTENT_LENGTH = 2200;
 
 async function handlePing(ws) {
@@ -596,7 +592,7 @@ async function handleStartDM(ws, data) {
 
 async function handleCreateGroup(ws, data) {
     if (!requireRegistered(ws)) return;
-    const { members: targetUsernames } = data;
+        const { members: targetUsernames, name } = data;
 
     if (!Array.isArray(targetUsernames) || targetUsernames.length === 0) {
         sendError(ws, 'Invalid group members.');
@@ -605,14 +601,13 @@ async function handleCreateGroup(ws, data) {
 
     const currentUserData = clients.get(ws.username);
     if (!currentUserData) return;
+    
     const uniqueTargets = [...new Set(targetUsernames)].filter(username => username !== ws.username);
     if (uniqueTargets.length === 0) {
         sendError(ws, 'A group must include at least one other member.');
         return;
     }
-    const wrappedKeys = data.conversationKeys || {};
 
-    // Fetch database IDs for all selected users
     const { data: targetUsers, error: targetError } = await supabase
         .from('users')
         .select('id, username')
@@ -623,15 +618,10 @@ async function handleCreateGroup(ws, data) {
         return;
     }
 
-    if (!wrappedKeys[ws.username] || targetUsers.some(user => !wrappedKeys[user.username])) {
-        sendError(ws, 'Group encryption keys are incomplete.');
-        return;
-    }
-
-    // Create the new conversation
+    // ✅ Save the raw AES key and the group name
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{ conversation_key: JSON.stringify(wrappedKeys) }])
+        .insert([{ conversation_key: data.conversationKey, name: name || 'Group Chat' }])
         .select()
         .single();
     
@@ -642,24 +632,22 @@ async function handleCreateGroup(ws, data) {
     }
 
     const newConvoId = newRow.id;
+    const allUserIds = [currentUserData.id, ...targetUsers.map(u => u.id)];
+    const memberInserts = allUserIds.map(userId => ({ conversation_id: newConvoId, user_id: userId }));
 
-    // Add all members to the database
-    const memberInserts = [{ conversation_id: newConvoId, user_id: currentUserData.id }];
+    await supabase.from('conversation_members').insert(memberInserts);
 
-    await supabase
-        .from('conversation_members')
-        .insert(memberInserts);
-
-    // Track in server memory
-    conversations.set(newConvoId, new Set([ws.username]));
+    conversations.set(newConvoId, new Set([ws.username, ...uniqueTargets]));
     groupConversations.add(newConvoId);
-    conversationKeys.set(newConvoId, wrappedKeys);
+    conversationKeys.set(newConvoId, data.conversationKey);
 
+    // Send invites to members with the raw AES key
     for (const user of targetUsers) {
         const invite = {
             conversationId: newConvoId,
             inviter: ws.username,
-            conversationKey: JSON.stringify({ [user.username]: wrappedKeys[user.username] })
+            name: name || 'Group Chat',
+            conversationKey: data.conversationKey 
         };
         const invites = groupInvites.get(user.username) || [];
         invites.push(invite);
@@ -668,13 +656,13 @@ async function handleCreateGroup(ws, data) {
         if (targetClient) send(targetClient.ws, { type: 'group_invite', ...invite });
     }
     
-    // Notify the creator
     send(ws, { 
         type: 'conversation_created', 
         conversationId: newConvoId,
-        members: [ws.username],
+        members: [ws.username, ...uniqueTargets],
         isGroup: true,
-        conversationKey: JSON.stringify(wrappedKeys),
+        name: name || 'Group Chat',
+        conversationKey: data.conversationKey,
         history: [] 
     });
 
@@ -696,9 +684,6 @@ module.exports = {
     handleSendMessage,
     handleTyping,
     handleStartDM,
-    handleCreateGroup
-    ,handleAcceptGroupInvite
-    ,handleLeaveGroup,
     handleCreateGroup,
     handleAcceptGroupInvite,
     handleLeaveGroup,

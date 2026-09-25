@@ -9,25 +9,6 @@ let isConnecting = false;
 let heartbeatInterval = null;
 let messageQueue = Promise.resolve();
 
-async function safeDecrypt(content, key) {
-  try {
-    return await decryptText(content, key);
-  } catch (err) {
-    console.warn('Failed to decrypt message, keeping raw content:', err);
-    return content;
-  }
-}
-
-async function createIdentity() {
-  const storageKey = `messaging-private-key-${state.username}`;
-  const publicStorageKey = `messaging-public-key-${state.username}`;
-  const pair = await generateIdentityKeyPair();
-  state.identityPrivateKey = pair.privateKey;
-  state.identityPublicKey = pair.publicKey;
-  localStorage.setItem(storageKey, await exportPrivateKey(pair.privateKey));
-  localStorage.setItem(publicStorageKey, await exportPublicKey(pair.publicKey));
-}
-
 export function setRequestedTarget(user) {
   requestedTarget = user;
 }
@@ -169,35 +150,6 @@ export async function handleServerMessage(data) {
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
 
-    case 'public_key': {
-      state.publicKeys.set(data.username, await importPublicKey(data.publicKey));
-      if (data.username === state.username || requestedTarget !== data.username) break;
-
-      const existingId = findDm(data.username);
-      if (existingId) {
-        requestedTarget = null;
-        setActiveConversation(existingId);
-        break;
-      }
-
-      const conversationKey = await generateKey();
-      const conversationKeys = {
-        [state.username]: await wrapConversationKey(conversationKey, state.identityPublicKey),
-        [data.username]: await wrapConversationKey(conversationKey, state.publicKeys.get(data.username))
-      };
-      send({ type: 'start_dm', targetUsername: data.username, conversationKeys });
-      break;
-    }
-
-    case 'public_key_unavailable': {
-      if (requestedTarget !== data.username) break;
-      const existingId = findDm(data.username);
-      requestedTarget = null;
-      if (existingId) setActiveConversation(existingId);
-      else alert(`${data.username} must be online at least once before you can start an encrypted chat.`);
-      break;
-    }
-
     case 'my_conversations':
       for (const conversationId of data.conversationIds) {
         send({ type: 'join_conversation', conversationId });
@@ -307,6 +259,10 @@ export async function handleServerMessage(data) {
 
       const msgKey = state.conversationKeys.get(data.conversationId);
       const displayContent = msgKey ? await safeDecrypt(data.content, msgKey) : data.content;
+      if (msgKey) {
+        try { displayContent = await decryptText(data.content, msgKey); } 
+        catch (error) { console.warn('Failed to decrypt incoming message.'); }
+      }
 
       appendMessage(data.conversationId, { ...data, content: displayContent });
 
