@@ -5,8 +5,6 @@ export const state = {
   activeConversationId: null,
   unreadCounts: new Map(),
   conversationKeys: new Map(),
-  identityPrivateKey: null,
-  identityPublicKey: null,
   publicKeys: new Map(),
   typingUsers: new Map(),
   pendingInvites: new Map()

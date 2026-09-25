@@ -170,3 +170,33 @@ export function renderGroupModal(users) {
     el.groupMemberList.appendChild(div);
   }
 }
+
+export function renderInvites() {
+  if (!el.inviteModalBody) return;
+  el.inviteModalBody.innerHTML = '';
+  const invites = Array.from(state.pendingInvites.values());
+  
+  if (invites.length === 0) {
+    el.inviteModalBody.innerHTML = '<p class="has-text-centered has-text-grey">No pending invitations.</p>';
+    return;
+  }
+
+  for (const invite of invites) {
+    const div = document.createElement('div');
+    div.className = 'invite-item box mb-3';
+    div.innerHTML = `
+      <p class="mb-2"><strong>${invite.inviter}</strong> invited you to join <strong>${invite.name || 'a group'}</strong>.</p>
+      <div class="buttons">
+        <button class="button is-success is-small" data-action="accept" data-id="${invite.conversationId}">Accept</button>
+        <button class="button is-danger is-small" data-action="decline" data-id="${invite.conversationId}">Decline</button>
+      </div>
+    `;
+    el.inviteModalBody.appendChild(div);
+  }
+}
+
+export function closeInviteModal() {
+  if (el.inviteModal) {
+    el.inviteModal.classList.remove('is-active');
+  }
+}
