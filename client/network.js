@@ -173,11 +173,12 @@ export async function handleServerMessage(data) {
           }
           
           // Ensure it is actually an array of numbers
-          if (Array.isArray(rawKeyArray)) {
+          if (Array.isArray(rawKeyArray) && rawKeyArray.length === 32) {
             key = await importKey(rawKeyArray);
             state.conversationKeys.set(data.conversationId, key);
           } else {
-            console.warn('Key is not an array format.');
+            const length = rawKeyArray ? rawKeyArray.length : 'undefined';
+            console.warn(`Invalid key length: expected 32, got ${length}. This is likely an old conversation key.`);
           }
         } catch (err) {
           console.warn('Could not import conversation key, messages will show as raw text.', err);
