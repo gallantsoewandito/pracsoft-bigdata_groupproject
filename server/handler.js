@@ -556,7 +556,7 @@ async function handleStartDM(ws, data) {
     } else {
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{ conversation_key: JSON.stringify(data.conversationKeys || {}) }])
+        .insert([{ conversation_key: data.conversationKey }])
         .select()
         .single();
 
@@ -576,7 +576,7 @@ async function handleStartDM(ws, data) {
         ]);
 
     conversations.set(newConvoId, new Set([ws.username, targetUsername]));
-    conversationKeys.set(newConvoId, data.conversationKeys);
+    conversationKeys.set(newConvoId, data.conversationKey);
 
     send(ws, {
         type: 'conversation_joined',
