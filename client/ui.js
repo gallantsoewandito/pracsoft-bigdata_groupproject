@@ -204,6 +204,19 @@ export function renderLoginError(message) {
   if (el.loginError) el.loginError.textContent = message || '';
 }
 
+export function resetAuthButton() {
+  const authBtn = document.getElementById('auth-btn');
+  const toggleBtn = document.getElementById('toggle-auth-mode');
+  if (authBtn) {
+    authBtn.disabled = false;
+    if (toggleBtn && toggleBtn.textContent.includes('Sign Up')) {
+      authBtn.textContent = 'Log In';
+    } else {
+      authBtn.textContent = 'Sign Up';
+    }
+  }
+}
+
 export function renderLoggedIn() {
   if (el.loginScreen) el.loginScreen.classList.add('is-hidden');
   if (el.app) el.app.classList.remove('is-hidden');

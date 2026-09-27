@@ -1,6 +1,6 @@
 import { importKey, decryptText } from './crypto.js';
 import { state, addOrUpdateConversation, appendMessage, removeConversation, setTyping, addInvite, removeInvite, incrementUnread, clearUnread } from './state.js';
-import { renderLoginError, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator, renderInvites } from './ui.js';
+import { renderLoginError, resetAuthButton, renderLoggedIn, renderOnlineUsers, renderActiveConversation, renderAll, renderTypingIndicator, renderInvites } from './ui.js';
 
 let ws = null;
 let requestedTarget = null;
@@ -126,6 +126,7 @@ export async function handleServerMessage(data) {
     case 'error':
       if (!state.username) {
         renderLoginError(data.message);
+        resetAuthButton();
       } else {
         alert(data.message);
       }
