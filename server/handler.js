@@ -556,7 +556,10 @@ async function handleStartDM(ws, data) {
     } else {
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{ conversation_key: data.conversationKey }])
+        .insert([{ 
+            conversation_key: data.conversationKey,
+            created_by: currentUserData.id
+         }])
         .select()
         .single();
 
@@ -621,7 +624,11 @@ async function handleCreateGroup(ws, data) {
     // ✅ Save the raw AES key and the group name
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
-        .insert([{ conversation_key: data.conversationKey, name: name || 'Group Chat' }])
+        .insert([{ 
+            conversation_key: data.conversationKey, 
+            name: name || 'Group Chat',
+            created_by: currentUserData.id 
+        }])
         .select()
         .single();
     

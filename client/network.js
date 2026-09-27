@@ -136,11 +136,6 @@ export async function handleServerMessage(data) {
         state.onlineUsers = new Set(data.users);
       }
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
-      for (const username of state.onlineUsers) {
-        if (username !== state.username && !state.publicKeys.has(username)) {
-          send({ type: 'get_public_key', username });
-        }
-      }
       break;
 
     case 'full_user_list':

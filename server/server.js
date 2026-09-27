@@ -264,9 +264,6 @@ wss.on('connection', (ws) => {
                 case 'login':
                     await handleLogin(ws, data);
                     break;
-                case 'register_public_key':
-                    handleRegisterPublicKey(ws, data);
-                    break;
                 case 'create_conversation':
                     await handleCreateConversation(ws);
                     break;
