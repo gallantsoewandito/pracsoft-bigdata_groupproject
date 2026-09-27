@@ -1,5 +1,15 @@
 import { state, removeConversation } from './state.js';
-import { el, renderLoginError, renderAll, renderGroupModal, closeInviteModal } from './ui.js';
+import {
+  el,
+  renderLoginError,
+  renderAll,
+  renderGroupModal,
+  closeInviteModal,
+  setSidebarSearchQuery,
+  setMessageSearchQuery,
+  moveMessageSearch,
+  clearMessageSearch
+} from './ui.js';
 import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId } from './network.js';
 import { generateKey, exportKey, encryptText } from './crypto.js';
 
@@ -17,6 +27,135 @@ let isLoginMode = true;
 let typingTimeout = null;
 let isCurrentlyTyping = false;
 let typingConversationId = null;
+
+const ATTACHMENT_PREFIX = '[[ATTACHMENT_V1]]';
+const MAX_UPLOAD_BYTES = 75 * 1024 * 1024;
+const attachmentInput = document.getElementById('attachment-input');
+const attachFileBtn = document.getElementById('attach-file-btn');
+const uploadStatus = document.getElementById('upload-status');
+
+function setUploadStatus(text, isError = false) {
+  if (!uploadStatus) return;
+  uploadStatus.textContent = text || '';
+  uploadStatus.classList.toggle('is-error', Boolean(isError));
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function uploadAttachment(file) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId) throw new Error('Open a conversation before attaching a file.');
+  if (!state.username) throw new Error('You must be logged in.');
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error(`${file.name} is larger than the 75 MB limit.`);
+
+  const key = state.conversationKeys.get(conversationId);
+  if (!key) throw new Error('This conversation is not decryptable on this device.');
+
+  const params = new URLSearchParams({
+    name: file.name,
+    type: file.type || 'application/octet-stream'
+  });
+
+  const response = await fetch(`/api/upload?${params.toString()}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Chat-Username': state.username,
+      'X-Conversation-Id': conversationId
+    },
+    body: file
+  });
+
+  let result = {};
+  try { result = await response.json(); } catch (_) {}
+  if (!response.ok) throw new Error(result.error || `Upload failed (${response.status}).`);
+
+  // The attachment descriptor travels through the SAME encrypted message path
+  // already used for normal chat text. No key-management code is changed.
+  const descriptor = ATTACHMENT_PREFIX + JSON.stringify(result);
+  const encryptedDescriptor = await encryptText(descriptor, key);
+  send({ type: 'send_message', conversationId, content: encryptedDescriptor });
+}
+
+if (attachFileBtn && attachmentInput) {
+  attachFileBtn.addEventListener('click', () => {
+    if (!state.activeConversationId) {
+      alert('Open a conversation before attaching a file.');
+      return;
+    }
+    attachmentInput.click();
+  });
+
+  attachmentInput.addEventListener('change', async () => {
+    const files = Array.from(attachmentInput.files || []);
+    if (!files.length) return;
+
+    attachFileBtn.disabled = true;
+    try {
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        setUploadStatus(`Uploading ${file.name} (${i + 1}/${files.length})...`);
+        await uploadAttachment(file);
+        // Existing server anti-spam rule allows one chat message per 500 ms.
+        if (i < files.length - 1) await sleep(550);
+      }
+      setUploadStatus(files.length === 1 ? 'Attachment sent.' : `${files.length} attachments sent.`);
+      setTimeout(() => setUploadStatus(''), 2200);
+    } catch (err) {
+      console.error(err);
+      setUploadStatus(err.message || 'Attachment upload failed.', true);
+    } finally {
+      attachmentInput.value = '';
+      attachFileBtn.disabled = false;
+    }
+  });
+}
+
+// Search users, DMs, and group chats in the sidebar.
+if (el.sidebarSearchInput) {
+  el.sidebarSearchInput.addEventListener('input', () => {
+    setSidebarSearchQuery(el.sidebarSearchInput.value);
+  });
+
+  el.sidebarSearchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      el.sidebarSearchInput.value = '';
+      setSidebarSearchQuery('');
+      el.sidebarSearchInput.blur();
+    }
+  });
+}
+
+// Search the already-loaded, decrypted messages in the active conversation.
+if (el.messageSearchInput) {
+  el.messageSearchInput.addEventListener('input', () => {
+    setMessageSearchQuery(el.messageSearchInput.value);
+  });
+
+  el.messageSearchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      moveMessageSearch(event.shiftKey ? -1 : 1);
+    } else if (event.key === 'Escape') {
+      clearMessageSearch();
+      el.messageSearchInput.blur();
+    }
+  });
+}
+
+if (el.messageSearchPrev) {
+  el.messageSearchPrev.addEventListener('click', () => moveMessageSearch(-1));
+}
+
+if (el.messageSearchNext) {
+  el.messageSearchNext.addEventListener('click', () => moveMessageSearch(1));
+}
+
+if (el.messageSearchClear) {
+  el.messageSearchClear.addEventListener('click', clearMessageSearch);
+}
 
 function stopTyping() {
   clearTimeout(typingTimeout);

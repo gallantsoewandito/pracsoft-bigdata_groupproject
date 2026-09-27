@@ -165,15 +165,23 @@ html, body {
 }
 
 .unread-badge {
-  background: #3273dc;
+  background: #f14668;
   color: #fff;
   border-radius: 999px;
   font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0 0.45rem;
-  min-width: 1.3rem;
+  font-weight: 800;
+  line-height: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.42rem;
+  min-width: 1.25rem;
   text-align: center;
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.user-list-item.has-unread .sidebar-item-title {
+  font-weight: 800;
+  color: #202124;
 }
 
 .invite-flag {
@@ -492,4 +500,227 @@ html, body {
 
 .group-member-item input {
   margin-right: 10px;
+}
+
+/* =========================================
+   9. Search
+   ========================================= */
+.sidebar-search-field {
+  flex-shrink: 0;
+  margin-bottom: 0.75rem;
+}
+
+.sidebar-search-field .input,
+.message-search-input-wrap .input {
+  border-color: #e0e6ed;
+  box-shadow: none;
+}
+
+.sidebar-search-field .input:focus,
+.message-search-input-wrap .input:focus {
+  border-color: #3273dc;
+  box-shadow: 0 0 0 2px rgba(50, 115, 220, 0.1);
+}
+
+.sidebar-item-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-search-empty {
+  padding: 0.8rem 0.75rem;
+  color: #a0aec0;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.chat-header-title-wrap {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: 1rem;
+}
+
+.message-search-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.message-search-input-wrap {
+  width: min(260px, 24vw);
+}
+
+.message-search-count {
+  min-width: 2.8rem;
+  text-align: center;
+  color: #7a7a7a;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.message.search-match {
+  outline: 2px solid rgba(255, 221, 87, 0.9);
+  outline-offset: 2px;
+}
+
+.message.search-match-current {
+  outline: 3px solid #ffb70f;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(255, 183, 15, 0.18);
+}
+
+@media (max-width: 900px) {
+  .chat-header {
+    align-items: flex-start;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .chat-header-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .message-search-controls {
+    flex: 1;
+  }
+
+  .message-search-input-wrap {
+    width: auto;
+    flex: 1;
+  }
+}
+
+
+/* =========================================
+   10. Attachments & Links
+   ========================================= */
+.chat-compose-row {
+  margin-bottom: 0.25rem !important;
+}
+
+#attach-file-btn {
+  min-width: 2.7rem;
+}
+
+.upload-status {
+  min-height: 1.1rem;
+  padding-left: 0.35rem;
+  color: #7a7a7a;
+  font-size: 0.72rem;
+}
+
+.upload-status.is-error {
+  color: #f14668;
+}
+
+.message-link {
+  color: inherit;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.message-received .message-link {
+  color: #3273dc;
+}
+
+.message-sent .message-link {
+  color: #ffffff;
+}
+
+.attachment-content {
+  width: min(440px, 60vw);
+}
+
+.attachment-card {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.attachment-image,
+.attachment-video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.attachment-audio {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.attachment-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding-top: 0.55rem;
+}
+
+.attachment-file-icon {
+  flex: 0 0 auto;
+  font-size: 1.15rem;
+}
+
+.attachment-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.attachment-size {
+  font-size: 0.68rem;
+  opacity: 0.72;
+}
+
+.attachment-download {
+  flex: 0 0 auto;
+}
+
+.message-sent .attachment-download {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.attachment-expired {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  opacity: 0.82;
+}
+
+@media (max-width: 700px) {
+  .attachment-content {
+    width: min(70vw, 360px);
+  }
+
+  .attachment-image,
+  .attachment-video {
+    max-height: 280px;
+  }
 }

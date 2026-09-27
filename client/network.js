@@ -218,6 +218,9 @@ export async function handleServerMessage(data) {
       } else if (data.type === 'conversation_created') {
         setActiveConversation(data.conversationId);
       }
+
+      // A newly joined conversation may already have an unread count waiting for it.
+      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
     }
 
@@ -261,7 +264,9 @@ export async function handleServerMessage(data) {
 
         case 'new_message': {
       if (!state.conversations.has(data.conversationId)) {
-        if (data.senderId !== state.username) incrementUnread(data.conversationId);
+        if (data.senderId !== state.username) {
+          incrementUnread(data.conversationId);
+        }
         send({ type: 'join_conversation', conversationId: data.conversationId });
         break;
       }
@@ -289,6 +294,9 @@ export async function handleServerMessage(data) {
 
       if (data.conversationId !== state.activeConversationId && data.senderId !== state.username) {
         incrementUnread(data.conversationId);
+
+        // Immediately show/update the red unread badge in the sidebar.
+        renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       }
 
       if (data.conversationId === state.activeConversationId) {

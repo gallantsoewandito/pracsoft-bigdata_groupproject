@@ -9,3 +9,5 @@ node_modules/
 # Operating system files
 .DS_Store
 Thumbs.db
+# Local chat attachments (runtime data)
+uploads/

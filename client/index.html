@@ -56,6 +56,19 @@
             <span class="icon"><i class="fas fa-users"></i></span>
             <span>New Group Chat</span>
           </button>
+
+          <div class="field sidebar-search-field">
+            <div class="control has-icons-left">
+              <input
+                id="sidebar-search-input"
+                class="input is-small"
+                type="search"
+                placeholder="Search users or chats..."
+                autocomplete="off"
+              />
+              <span class="icon is-small is-left"><i class="fas fa-magnifying-glass"></i></span>
+            </div>
+          </div>
           
           <!-- This single list will hold both groups and direct messages -->
           <ul id="online-users-list" class="user-list"></ul>
@@ -65,23 +78,56 @@
       <!-- Main Chat Panel -->
       <div class="column main-panel">
         <div id="active-conversation-header" class="chat-header">
-          <div>
+          <div class="chat-header-title-wrap">
             <span id="active-conversation-title" class="title is-5 mb-0">Select a user</span>
             <span id="active-conversation-members" class="is-size-7 has-text-grey ml-2"></span>
           </div>
-          <button id="leave-group-btn" class="button is-small is-danger is-light is-hidden" type="button">
-            <span class="icon"><i class="fas fa-right-from-bracket"></i></span>
-            <span>Leave group</span>
-          </button>
+
+          <div class="chat-header-actions">
+            <div class="message-search-controls">
+              <div class="control has-icons-left message-search-input-wrap">
+                <input
+                  id="message-search-input"
+                  class="input is-small"
+                  type="search"
+                  placeholder="Search messages..."
+                  autocomplete="off"
+                  disabled
+                />
+                <span class="icon is-small is-left"><i class="fas fa-magnifying-glass"></i></span>
+              </div>
+              <span id="message-search-count" class="message-search-count">0/0</span>
+              <button id="message-search-prev" class="button is-small is-light" type="button" title="Previous match" disabled>
+                <span class="icon is-small"><i class="fas fa-chevron-up"></i></span>
+              </button>
+              <button id="message-search-next" class="button is-small is-light" type="button" title="Next match" disabled>
+                <span class="icon is-small"><i class="fas fa-chevron-down"></i></span>
+              </button>
+              <button id="message-search-clear" class="button is-small is-light" type="button" title="Clear search" disabled>
+                <span class="icon is-small"><i class="fas fa-xmark"></i></span>
+              </button>
+            </div>
+
+            <button id="leave-group-btn" class="button is-small is-danger is-light is-hidden" type="button">
+              <span class="icon"><i class="fas fa-right-from-bracket"></i></span>
+              <span>Leave group</span>
+            </button>
+          </div>
         </div>
 
         <div id="message-history" class="message-history"></div>
         <div id="typing-indicator" class="typing-indicator"></div>
 
         <form id="message-input-form" class="chat-input-area">
-          <div class="field has-addons is-expanded">
+          <div class="field has-addons is-expanded chat-compose-row">
+            <div class="control">
+              <button id="attach-file-btn" type="button" class="button is-light is-rounded" title="Attach files">
+                <span class="icon"><i class="fas fa-paperclip"></i></span>
+              </button>
+              <input id="attachment-input" class="is-hidden" type="file" multiple />
+            </div>
             <div class="control is-expanded">
-              <input id="message-input" class="input is-rounded" type="text" placeholder="Type a message..." autocomplete="off" />
+              <input id="message-input" class="input is-rounded" type="text" placeholder="Type a message or paste a link..." autocomplete="off" />
             </div>
             <div class="control">
               <button type="submit" class="button is-primary is-rounded">
@@ -89,6 +135,7 @@
               </button>
             </div>
           </div>
+          <div id="upload-status" class="upload-status" aria-live="polite"></div>
         </form>
       </div>
 
