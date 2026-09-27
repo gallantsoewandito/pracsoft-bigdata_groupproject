@@ -287,6 +287,8 @@ export async function handleServerMessage(data) {
       const convo = state.conversations.get(data.conversationId);
       if (convo) convo.lastMessageAt = data.createdAt;
 
+      renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+
       if (data.conversationId !== state.activeConversationId && data.senderId !== state.username) {
         incrementUnread(data.conversationId);
 
