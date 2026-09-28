@@ -33,7 +33,29 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, maxPayload: 64 * 1024 });
 
-app.use(express.static(path.join(__dirname, '..')));
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://pracsoft-bigdatagroupproject.vercel.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:5500',
+    'null'
+  ];
+
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Chat-Username, X-Conversation-Id');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+app.use(express.static(path.join(__dirname, '../client')));
 
 
 // -----------------------------------------------------------------------------
@@ -218,28 +240,6 @@ app.get('/uploads/:fileName', async (req, res) => {
     }
 
     return res.sendFile(fullPath);
-});
-
-app.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://pracsoft-bigdatagroupproject.vercel.app',
-    'http://localhost:3000',
-    'http://127.0.0.1:5500',
-    'null'
-  ];
-
-  const origin = req.headers.origin;
-
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Chat-Username, X-Conversation-Id');
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
-  next();
 });
 
 setInterval(() => {
