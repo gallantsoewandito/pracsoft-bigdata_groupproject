@@ -33,39 +33,39 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, maxPayload: 64 * 1024 });
 
+// 1. CORS Middleware (MUST be at the top)
 app.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://pracsoft-bigdatagroupproject.vercel.app',
-    'http://localhost:3000',
-    'http://127.0.0.1:5500',
-    'null'
-  ];
+    const allowedOrigins = [
+        'https://pracsoft-bigdatagroupproject.vercel.app',
+        'http://localhost:3000',
+        'http://127.0.0.1:5500',
+        'null'
+    ];
+    const origin = req.headers.origin;
 
-  const origin = req.headers.origin;
-
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Chat-Username, X-Conversation-Id, Range');
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
-  next();
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Chat-Username, X-Conversation-Id');
+    
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
 });
 
+// 2. Serve Static Files
 app.use(express.static(path.join(__dirname, '../client')));
 
-
-// -----------------------------------------------------------------------------
-// Attachment uploads
-// -----------------------------------------------------------------------------
-// Files live on the Node server's filesystem. Nothing here changes or creates
-// encryption/API keys. Chat messages still use the existing encrypted text path.
+// 3. Attachment Upload Configuration
 const UPLOAD_DIR = path.join(__dirname, '../uploads');
-const MAX_UPLOAD_BYTES = 75 * 1024 * 1024;       // 75 MB per file
-const MAX_UPLOAD_STORAGE_BYTES = 500 * 1024 * 1024; // 500 MB total attachment pool
+const MAX_UPLOAD_BYTES = 75 * 1024 * 1024;
+const MAX_UPLOAD_STORAGE_BYTES = 500 * 1024 * 1024;
+
+if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
 function safeExtension(fileName) {
     const ext = path.extname(String(fileName || '')).toLowerCase();
@@ -77,8 +77,82 @@ function makeStoredFileName(originalName) {
     return `${Date.now()}-${randomPart}${safeExtension(originalName)}`;
 }
 
-// Upload raw file bytes. We deliberately keep this simple for the university
-// prototype: the user must currently be connected and be a member of the chat.
+async function listStoredUploads() {
+    const names = await fs.promises.readdir(UPLOAD_DIR);
+    const rows = [];
+    for (const name of names) {
+        if (name.startsWith('.upload-')) continue;
+        const fullPath = path.join(UPLOAD_DIR, name);
+        try {
+            const stat = await fs.promises.stat(fullPath);
+            if (stat.isFile()) {
+                rows.push({ name, fullPath, size: stat.size, mtimeMs: stat.mtimeMs });
+            }
+        } catch (_) {}
+    }
+    return rows;
+}
+
+async function makeRoomForUpload(incomingBytes) {
+    if (incomingBytes > MAX_UPLOAD_STORAGE_BYTES) return false;
+    const files = await listStoredUploads();
+    let total = files.reduce((sum, file) => sum + file.size, 0);
+    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    for (const file of files) {
+        if (total + incomingBytes <= MAX_UPLOAD_STORAGE_BYTES) break;
+        try {
+            await fs.promises.unlink(file.fullPath);
+            total -= file.size;
+        } catch (err) {
+            console.warn(`Could not delete old attachment ${file.name}:`, err.message);
+        }
+    }
+    return total + incomingBytes <= MAX_UPLOAD_STORAGE_BYTES;
+}
+
+function streamRequestToFile(req, outputPath, maxBytes) {
+    return new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(outputPath, { flags: 'wx' });
+        let bytes = 0;
+        let settled = false;
+
+        const fail = (err) => {
+            if (settled) return;
+            settled = true;
+            output.destroy();
+            fs.promises.unlink(outputPath).catch(() => {});
+            reject(err);
+        };
+
+        req.on('data', (chunk) => {
+            if (settled) return;
+            bytes += chunk.length;
+            if (bytes > maxBytes) {
+                req.pause();
+                fail(Object.assign(new Error('File too large.'), { code: 'FILE_TOO_LARGE' }));
+                return;
+            }
+            if (!output.write(chunk)) req.pause();
+        });
+
+        output.on('drain', () => { if (!settled) req.resume(); });
+
+        req.on('end', () => {
+            if (settled) return;
+            output.end(() => {
+                if (settled) return;
+                settled = true;
+                resolve(bytes);
+            });
+        });
+
+        req.on('aborted', () => fail(new Error('Upload aborted.')));
+        req.on('error', fail);
+        output.on('error', fail);
+    });
+}
+
+// 4. Upload Route
 app.post('/api/upload', async (req, res) => {
     const username = String(req.get('x-chat-username') || '');
     const conversationId = String(req.get('x-conversation-id') || '');
@@ -101,8 +175,6 @@ app.post('/api/upload', async (req, res) => {
 
     const storedName = makeStoredFileName(originalName);
     const tempName = `.upload-${storedName}.tmp`;
-    
-    // Explicitly define paths outside the try block to ensure they are in scope
     const tempPath = path.join(UPLOAD_DIR, tempName);
     const finalPath = path.join(UPLOAD_DIR, storedName);
 
@@ -124,7 +196,6 @@ app.post('/api/upload', async (req, res) => {
             url: `${BACKEND_URL}/uploads/${encodeURIComponent(storedName)}`
         });
     } catch (err) {
-        // Safely attempt to delete tempPath if it exists
         if (typeof tempPath !== 'undefined') {
             await fs.promises.unlink(tempPath).catch(() => {});
         }
@@ -136,6 +207,29 @@ app.post('/api/upload', async (req, res) => {
     }
 });
 
+// 5. Serve Uploaded Files
+app.get('/uploads/:fileName', async (req, res) => {
+    const requested = String(req.params.fileName || '');
+    const safeName = path.basename(requested);
+    if (!safeName || safeName !== requested) return res.sendStatus(400);
+
+    const fullPath = path.join(UPLOAD_DIR, safeName);
+
+    try {
+        await fs.promises.access(fullPath, fs.constants.R_OK);
+    } catch (_) {
+        return res.status(404).send('Attachment expired or was removed to save storage space.');
+    }
+
+    if (req.query.download === '1') {
+        const requestedDownloadName = path.basename(String(req.query.name || safeName));
+        return res.download(fullPath, requestedDownloadName || safeName);
+    }
+
+    return res.sendFile(fullPath);
+});
+
+// 6. WebSocket Heartbeat
 setInterval(() => {
     wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
@@ -146,14 +240,11 @@ setInterval(() => {
     });
 }, 30000);
 
+// 7. WebSocket Connection Handling
 wss.on('connection', (ws) => {
     ws.isAlive = true;
-    ws.on('pong', () => {
-        ws.isAlive = true;
-    });
-    ws.on('error', (err) => {
-        console.error('WebSocket error:', err.message);
-    });
+    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('error', (err) => { console.error('WebSocket error:', err.message); });
     console.log('New client connected');
     ws.username = null;
 
@@ -178,47 +269,20 @@ wss.on('connection', (ws) => {
             }
 
             switch (data.type) {
-                case 'signup':
-                    await handleSignup(ws, data);
-                    break;
-                case 'login':
-                    await handleLogin(ws, data);
-                    break;
-                case 'create_conversation':
-                    await handleCreateConversation(ws);
-                    break;
-                case 'join_conversation':
-                    await handleJoinConversation(ws, data);
-                    break;
-                case 'send_message':
-                    await handleSendMessage(ws, data);
-                    break;
-                case 'typing':
-                    handleTyping(ws, data);
-                    break;
-                case 'start_dm':
-                    await handleStartDM(ws, data);
-                    break;
-                case 'create_group':
-                    await handleCreateGroup(ws, data);
-                    break;
-                case 'accept_group_invite':
-                    await handleAcceptGroupInvite(ws, data);
-                    break;
-                case 'get_pending_invites':
-                    handleGetPendingInvites(ws);
-                    break;
-                case 'decline_group_invite':
-                    handleDeclineGroupInvite(ws, data);
-                    break;
-                case 'leave_group':
-                    await handleLeaveGroup(ws, data);
-                    break;
-                case 'ping':
-                    send(ws, { type: 'pong' });
-                    break;
-                default:
-                    sendError(ws, `Unknown message type: ${data.type}`);
+                case 'signup': await handleSignup(ws, data); break;
+                case 'login': await handleLogin(ws, data); break;
+                case 'create_conversation': await handleCreateConversation(ws); break;
+                case 'join_conversation': await handleJoinConversation(ws, data); break;
+                case 'send_message': await handleSendMessage(ws, data); break;
+                case 'typing': handleTyping(ws, data); break;
+                case 'start_dm': await handleStartDM(ws, data); break;
+                case 'create_group': await handleCreateGroup(ws, data); break;
+                case 'accept_group_invite': await handleAcceptGroupInvite(ws, data); break;
+                case 'get_pending_invites': handleGetPendingInvites(ws); break;
+                case 'decline_group_invite': handleDeclineGroupInvite(ws, data); break;
+                case 'leave_group': await handleLeaveGroup(ws, data); break;
+                case 'ping': send(ws, { type: 'pong' }); break;
+                default: sendError(ws, `Unknown message type: ${data.type}`);
             }
         } catch (err) {
             console.error('Handler error:', err);
