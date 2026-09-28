@@ -146,11 +146,12 @@ app.post('/api/upload', async (req, res) => {
             url: publicUrlData.publicUrl
         });
     } catch (err) {
-        console.error('Attachment upload failed:', err);
+        await fs.promises.unlink(tempPath).catch(() => {});
         if (err && err.code === 'FILE_TOO_LARGE') {
             return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
         }
-        return res.status(500).json({ error: 'Failed to upload attachment.' });
+        console.error('Attachment upload failed:', err);
+        return res.status(500).json({ error: `Failed to upload attachment: ${err.message}` });
     }
 });
 
