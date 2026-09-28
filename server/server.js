@@ -3,6 +3,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
+const supabase = require('./db');
 
 const {
     clients,
@@ -173,36 +174,57 @@ app.post('/api/upload', async (req, res) => {
         return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
     }
 
+    const chunks = [];
+    let totalBytes = 0;
+
+    await new Promise((resolve, reject) => {
+        req.on('data', (chunk) => {
+            totalBytes += chunk.length;
+            if (totalBytes > MAX_UPLOAD_BYTES) {
+                return reject(Object.assign(new Error('File too large.'), { code: 'FILE_TOO_LARGE' }));
+            }
+            chunks.push(chunk);
+        });
+        req.on('end', resolve);
+        req.on('error', reject);
+    });
+
+    const buffer = Buffer.concat(chunks);
     const storedName = makeStoredFileName(originalName);
-    const tempName = `.upload-${storedName}.tmp`;
-    const tempPath = path.join(UPLOAD_DIR, tempName);
-    const finalPath = path.join(UPLOAD_DIR, storedName);
+    const filePath = `${conversationId}/${storedName}`;
 
     try {
-        const bytesWritten = await streamRequestToFile(req, tempPath, MAX_UPLOAD_BYTES);
-        const hasRoom = await makeRoomForUpload(bytesWritten);
+        // Upload to Supabase Storage
+        const { data, error } = await supabase
+            .storage
+            .from('chat-attachments')
+            .upload(filePath, buffer, {
+                contentType: mimeType,
+                upsert: false
+            });
 
-        if (!hasRoom) {
-            await fs.promises.unlink(tempPath).catch(() => {});
-            return res.status(507).json({ error: 'Attachment storage is full.' });
+        if (error) {
+            console.error('Supabase storage upload error:', error);
+            return res.status(500).json({ error: 'Failed to upload to storage.' });
         }
 
-        await fs.promises.rename(tempPath, finalPath);
+        // Get the permanent public URL
+        const { data: publicUrlData } = supabase
+            .storage
+            .from('chat-attachments')
+            .getPublicUrl(filePath);
 
         return res.json({
             name: originalName,
             mime: mimeType || 'application/octet-stream',
-            size: bytesWritten,
-            url: `${BACKEND_URL}/uploads/${encodeURIComponent(storedName)}`
+            size: totalBytes,
+            url: publicUrlData.publicUrl
         });
     } catch (err) {
-        if (typeof tempPath !== 'undefined') {
-            await fs.promises.unlink(tempPath).catch(() => {});
-        }
+        console.error('Attachment upload failed:', err);
         if (err && err.code === 'FILE_TOO_LARGE') {
             return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
         }
-        console.error('Attachment upload failed:', err);
         return res.status(500).json({ error: `Failed to upload attachment: ${err.message}` });
     }
 });
