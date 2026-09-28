@@ -61,7 +61,7 @@ async function uploadAttachment(file) {
   const isLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname) || window.location.protocol === 'file:';
   const backendUrl = isLocal ? 'http://localhost:3000' : 'https://pracsoft-bigdata-groupproject.onrender.com';
 
-  const response = await fetch(`/api/upload?${params.toString()}`, {
+  const response = await fetch(`${backendUrl}/api/upload?${params.toString()}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
