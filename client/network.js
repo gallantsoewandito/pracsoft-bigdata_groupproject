@@ -305,7 +305,9 @@ export async function handleServerMessage(data) {
 
     case 'member_update':
       if (!state.conversations.has(data.conversationId)) break;
-      addOrUpdateConversation(data.conversationId, { members: data.members });
+      const currentConvo = state.conversations.get(data.conversationId);
+      const mergedMembers = Array.from(new Set([...currentConvo.members, ...data.members]));
+      addOrUpdateConversation(data.conversationId, { members: mergedMembers});
       renderActiveConversation();
       break;
 
