@@ -47,7 +47,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Chat-Username, X-Conversation-Id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Chat-Username, X-Conversation-Id, Range');
   
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
@@ -67,8 +67,6 @@ const UPLOAD_DIR = path.join(__dirname, '../uploads');
 const MAX_UPLOAD_BYTES = 75 * 1024 * 1024;       // 75 MB per file
 const MAX_UPLOAD_STORAGE_BYTES = 500 * 1024 * 1024; // 500 MB total attachment pool
 
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
 function safeExtension(fileName) {
     const ext = path.extname(String(fileName || '')).toLowerCase();
     return /^\.[a-z0-9]{1,10}$/.test(ext) ? ext : '';
@@ -77,93 +75,6 @@ function safeExtension(fileName) {
 function makeStoredFileName(originalName) {
     const randomPart = Math.random().toString(36).slice(2, 12);
     return `${Date.now()}-${randomPart}${safeExtension(originalName)}`;
-}
-
-async function listStoredUploads() {
-    const names = await fs.promises.readdir(UPLOAD_DIR);
-    const rows = [];
-
-    for (const name of names) {
-        if (name.startsWith('.upload-')) continue;
-        const fullPath = path.join(UPLOAD_DIR, name);
-        try {
-            const stat = await fs.promises.stat(fullPath);
-            if (stat.isFile()) {
-                rows.push({ name, fullPath, size: stat.size, mtimeMs: stat.mtimeMs });
-            }
-        } catch (_) {
-            // File may have disappeared between readdir/stat. Ignore it.
-        }
-    }
-
-    return rows;
-}
-
-async function makeRoomForUpload(incomingBytes) {
-    if (incomingBytes > MAX_UPLOAD_STORAGE_BYTES) return false;
-
-    const files = await listStoredUploads();
-    let total = files.reduce((sum, file) => sum + file.size, 0);
-
-    // Oldest attachments are evicted first, exactly as requested.
-    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
-
-    for (const file of files) {
-        if (total + incomingBytes <= MAX_UPLOAD_STORAGE_BYTES) break;
-        try {
-            await fs.promises.unlink(file.fullPath);
-            total -= file.size;
-            console.log(`Attachment cleanup: deleted ${file.name}`);
-        } catch (err) {
-            console.warn(`Could not delete old attachment ${file.name}:`, err.message);
-        }
-    }
-
-    return total + incomingBytes <= MAX_UPLOAD_STORAGE_BYTES;
-}
-
-function streamRequestToFile(req, outputPath, maxBytes) {
-    return new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(outputPath, { flags: 'wx' });
-        let bytes = 0;
-        let settled = false;
-
-        const fail = (err) => {
-            if (settled) return;
-            settled = true;
-            output.destroy();
-            fs.promises.unlink(outputPath).catch(() => {});
-            reject(err);
-        };
-
-        req.on('data', (chunk) => {
-            if (settled) return;
-            bytes += chunk.length;
-            if (bytes > maxBytes) {
-                req.pause();
-                fail(Object.assign(new Error('File too large.'), { code: 'FILE_TOO_LARGE' }));
-                return;
-            }
-            if (!output.write(chunk)) req.pause();
-        });
-
-        output.on('drain', () => {
-            if (!settled) req.resume();
-        });
-
-        req.on('end', () => {
-            if (settled) return;
-            output.end(() => {
-                if (settled) return;
-                settled = true;
-                resolve(bytes);
-            });
-        });
-
-        req.on('aborted', () => fail(new Error('Upload aborted.')));
-        req.on('error', fail);
-        output.on('error', fail);
-    });
 }
 
 // Upload raw file bytes. We deliberately keep this simple for the university
@@ -188,58 +99,59 @@ app.post('/api/upload', async (req, res) => {
         return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
     }
 
+    // Collect the file into memory (for files under 75MB this is fine)
+    const chunks = [];
+    let totalBytes = 0;
+
+    await new Promise((resolve, reject) => {
+        req.on('data', (chunk) => {
+            totalBytes += chunk.length;
+            if (totalBytes > MAX_UPLOAD_BYTES) {
+                return reject(Object.assign(new Error('File too large.'), { code: 'FILE_TOO_LARGE' }));
+            }
+            chunks.push(chunk);
+        });
+        req.on('end', resolve);
+        req.on('error', reject);
+    });
+
+    const buffer = Buffer.concat(chunks);
     const storedName = makeStoredFileName(originalName);
-    const tempName = `.upload-${storedName}.tmp`;
-    const tempPath = path.join(UPLOAD_DIR, tempName);
-    const finalPath = path.join(UPLOAD_DIR, storedName);
+    const filePath = `${conversationId}/${storedName}`;
 
     try {
-        const bytesWritten = await streamRequestToFile(req, tempPath, MAX_UPLOAD_BYTES);
-        const hasRoom = await makeRoomForUpload(bytesWritten);
+        const { data, error } = await supabase
+            .storage
+            .from('chat-attachments')
+            .upload(filePath, buffer, {
+                contentType: mimeType,
+                upsert: false
+            });
 
-        if (!hasRoom) {
-            await fs.promises.unlink(tempPath).catch(() => {});
-            return res.status(507).json({ error: 'Attachment storage is full.' });
+        if (error) {
+            console.error('Supabase storage upload error:', error);
+            return res.status(500).json({ error: 'Failed to upload to storage.' });
         }
 
-        await fs.promises.rename(tempPath, finalPath);
+        // Get the public URL
+        const { data: publicUrlData } = supabase
+            .storage
+            .from('chat-attachments')
+            .getPublicUrl(filePath);
 
         return res.json({
             name: originalName,
             mime: mimeType || 'application/octet-stream',
-            size: bytesWritten,
-            url: `${BACKEND_URL}/uploads/${encodeURIComponent(storedName)}`
+            size: totalBytes,
+            url: publicUrlData.publicUrl
         });
     } catch (err) {
-        await fs.promises.unlink(tempPath).catch(() => {});
+        console.error('Attachment upload failed:', err);
         if (err && err.code === 'FILE_TOO_LARGE') {
             return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
         }
-        console.error('Attachment upload failed:', err);
         return res.status(500).json({ error: 'Failed to upload attachment.' });
     }
-});
-
-// Serve inline previews. Adding ?download=1 forces a normal file download.
-app.get('/uploads/:fileName', async (req, res) => {
-    const requested = String(req.params.fileName || '');
-    const safeName = path.basename(requested);
-    if (!safeName || safeName !== requested) return res.sendStatus(400);
-
-    const fullPath = path.join(UPLOAD_DIR, safeName);
-
-    try {
-        await fs.promises.access(fullPath, fs.constants.R_OK);
-    } catch (_) {
-        return res.status(404).send('Attachment expired or was removed to save storage space.');
-    }
-
-    if (req.query.download === '1') {
-        const requestedDownloadName = path.basename(String(req.query.name || safeName));
-        return res.download(fullPath, requestedDownloadName || safeName);
-    }
-
-    return res.sendFile(fullPath);
 });
 
 setInterval(() => {
