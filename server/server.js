@@ -99,54 +99,35 @@ app.post('/api/upload', async (req, res) => {
         return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
     }
 
-    // Collect the file into memory (for files under 75MB this is fine)
-    const chunks = [];
-    let totalBytes = 0;
-
-    await new Promise((resolve, reject) => {
-        req.on('data', (chunk) => {
-            totalBytes += chunk.length;
-            if (totalBytes > MAX_UPLOAD_BYTES) {
-                return reject(Object.assign(new Error('File too large.'), { code: 'FILE_TOO_LARGE' }));
-            }
-            chunks.push(chunk);
-        });
-        req.on('end', resolve);
-        req.on('error', reject);
-    });
-
-    const buffer = Buffer.concat(chunks);
     const storedName = makeStoredFileName(originalName);
-    const filePath = `${conversationId}/${storedName}`;
+    const tempName = `.upload-${storedName}.tmp`;
+    
+    // Explicitly define paths outside the try block to ensure they are in scope
+    const tempPath = path.join(UPLOAD_DIR, tempName);
+    const finalPath = path.join(UPLOAD_DIR, storedName);
 
     try {
-        const { data, error } = await supabase
-            .storage
-            .from('chat-attachments')
-            .upload(filePath, buffer, {
-                contentType: mimeType,
-                upsert: false
-            });
+        const bytesWritten = await streamRequestToFile(req, tempPath, MAX_UPLOAD_BYTES);
+        const hasRoom = await makeRoomForUpload(bytesWritten);
 
-        if (error) {
-            console.error('Supabase storage upload error:', error);
-            return res.status(500).json({ error: 'Failed to upload to storage.' });
+        if (!hasRoom) {
+            await fs.promises.unlink(tempPath).catch(() => {});
+            return res.status(507).json({ error: 'Attachment storage is full.' });
         }
 
-        // Get the public URL
-        const { data: publicUrlData } = supabase
-            .storage
-            .from('chat-attachments')
-            .getPublicUrl(filePath);
+        await fs.promises.rename(tempPath, finalPath);
 
         return res.json({
             name: originalName,
             mime: mimeType || 'application/octet-stream',
-            size: totalBytes,
-            url: publicUrlData.publicUrl
+            size: bytesWritten,
+            url: `${BACKEND_URL}/uploads/${encodeURIComponent(storedName)}`
         });
     } catch (err) {
-        await fs.promises.unlink(tempPath).catch(() => {});
+        // Safely attempt to delete tempPath if it exists
+        if (typeof tempPath !== 'undefined') {
+            await fs.promises.unlink(tempPath).catch(() => {});
+        }
         if (err && err.code === 'FILE_TOO_LARGE') {
             return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
         }
