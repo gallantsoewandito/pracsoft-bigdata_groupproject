@@ -112,7 +112,6 @@ async function handleSignup(ws, data) {
 async function handleLogin(ws, data) {
     const username = (data.username || '').trim();
     const password = data.password;
-    const publicKey = data.publicKey;
 
     if (!username || !password) {
         sendError(ws, 'Username and password are required.');
@@ -148,7 +147,12 @@ async function handleLogin(ws, data) {
     ws.username = user.username;
     clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
 
-    send(ws, { type: 'registered', username: user.username });
+    // ✅ THIS WAS MISSING: Generate and save the session token on login
+    const sessionToken = data.sessionToken || crypto.randomUUID();
+    await supabase.from('users').update({ session_token: sessionToken }).eq('id', user.id);
+
+    // ✅ THIS WAS MISSING: Send the sessionToken back to the client
+    send(ws, { type: 'registered', username: user.username, sessionToken });
     await loadInitialData(ws, user.id);
 }
 
