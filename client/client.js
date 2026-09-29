@@ -13,6 +13,17 @@ import {
 import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId, resumeSession, closeConnection } from './network.js';
 import { generateKey, exportKey, encryptText } from './crypto.js';
 
+const initialToken = localStorage.getItem('chat_session_token');
+const initialUsername = localStorage.getItem('chat_username');
+
+if (initialToken && initialUsername) {
+  const loginScreen = document.getElementById('login-screen');
+  const app = document.getElementById('app');
+  if (app) {
+    app.classList.remove('is-hidden');
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem('chat_session_token');
     const username = localStorage.getItem('chat_username');
