@@ -55,7 +55,11 @@ export function connect(username, password, authType) {
       }
     }, 25000);
 
-    send({ type: authType, username, password });
+    if (authType === 'resume_session') {
+      send({ type: 'resume_session', username, sessionToken });
+    } else {
+      send({ type: authType, username, password, sessionToken });
+    }
   });
 
   socket.addEventListener('message', (event) => {
@@ -106,6 +110,17 @@ export function connect(username, password, authType) {
   });
 }
 
+export function resumeSession(username, sessionToken) {
+    connect(username, '', 'resume_session', sessionToken);
+}
+
+export function closeConnection() {
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
+}
+
 export function send(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
@@ -118,6 +133,10 @@ export async function handleServerMessage(data) {
   switch (data.type) {
     case 'registered':
       state.username = data.username;
+      if (data.sessionToken) {
+        localStorage.setItem('chat_session_token', data.sessionToken);
+        localStorage.setItem('chat_username', data.username);
+      }
       renderLoggedIn();
       renderAll();
       send({ type: 'get_pending_invites' });

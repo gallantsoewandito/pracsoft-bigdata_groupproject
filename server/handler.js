@@ -1,5 +1,6 @@
 const supabase = require('./db');
-const bcrypt = require('bcrypt')
+const bcrypt = require('bcrypt');
+const crypto = require('crypto')
 
 const clients = new Map();
 const conversations = new Map();
@@ -55,7 +56,6 @@ function requireRegistered(ws) {
 async function handleSignup(ws, data) {
     const username = (data.username || '').trim();
     const password = data.password;
-    const publicKey = data.publicKey;
 
     if (!username || !password) {
         sendError(ws, 'Username and password are required.');
@@ -102,7 +102,10 @@ async function handleSignup(ws, data) {
     ws.username = newUser.username;
     clients.set(newUser.username, { ws: ws, id: newUser.id, lastMessageTime: 0 });
 
-    send(ws, { type: 'registered', username: newUser.username });
+    const sessionToken = data.sessionToken || crypto.randomUUID();
+    await supabase.from('users').update({ session_token: sessionToken }).eq('id', newUser.id);
+
+    send(ws, { type: 'registered', username: newUser.username, sessionToken });
     await loadInitialData(ws, newUser.id);
 }
 
@@ -709,6 +712,60 @@ async function handleCreateGroup(ws, data) {
     broadcastMemberUpdate(newConvoId);
 }
 
+async function handleResumeSession(ws, data) {
+    const { username, sessionToken } = data;
+    const { data: user, error } = await supabase
+        .from('users')
+        .select('id, username, session_token')
+        .eq('username', username)
+        .single();
+
+    if (error || !user || user.session_token !== sessionToken) {
+        sendError(ws, 'Invalid or expired session. Please log in again.');
+        return;
+    }
+
+    if (clients.has(user.username)) {
+        const oldClient = clients.get(user.username);
+        send(oldClient.ws, { type: 'error', message: 'You have been logged in from another device.' });
+        oldClient.ws.username = null;
+        oldClient.ws.close();
+        clients.delete(user.username);
+    }
+
+    ws.username = user.username;
+    clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
+    send(ws, { type: 'registered', username: user.username, sessionToken });
+    await loadInitialData(ws, user.id);
+}
+
+async function handleDeleteAccount(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const clientData = clients.get(ws.username);
+    if (!clientData) return;
+
+    const userId = clientData.id;
+    const usernameToDelete = ws.username;
+
+    // 1. Delete messages
+    await supabase.from('messages').delete().eq('sender_id', userId);
+    // 2. Delete conversation memberships
+    await supabase.from('conversation_members').delete().eq('user_id', userId);
+    // 3. Delete the user
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+
+    if (error) {
+        console.error('Delete account error:', error);
+        sendError(ws, 'Failed to delete account.');
+        return;
+    }
+
+    ws.username = null;
+    clients.delete(usernameToDelete);
+    ws.close();
+    broadcastUserList();
+}
+
 module.exports = {
     clients,
     conversations,
@@ -728,5 +785,7 @@ module.exports = {
     handleAcceptGroupInvite,
     handleLeaveGroup,
     handleGetPendingInvites,
-    handleDeclineGroupInvite
+    handleDeclineGroupInvite,
+    handleResumeSession,
+    handleDeleteAccount
 };

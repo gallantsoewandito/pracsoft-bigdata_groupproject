@@ -10,8 +10,16 @@ import {
   moveMessageSearch,
   clearMessageSearch
 } from './ui.js';
-import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId } from './network.js';
+import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId, resumeSession, closeConnection } from './network.js';
 import { generateKey, exportKey, encryptText } from './crypto.js';
+
+window.addEventListener('DOMContentLoaded', () => {
+    const token = localStorage.getItem('chat_session_token');
+    const username = localStorage.getItem('chat_username');
+    if (token && username) {
+        window.resumeSession(username, token);
+    }
+});
 
 // Expose functions to the window object
 window.state = state;
@@ -19,6 +27,8 @@ window.send = send;
 window.setActiveConversation = setActiveConversation;
 window.setRequestedTarget = setRequestedTarget;
 window.setRequestedGroupId = setRequestedGroupId;
+window.resumeSession = resumeSession;
+window.closeConnection = closeConnection;
 
 const passwordInput = document.getElementById('password-input');
 const authBtn = document.getElementById('auth-btn');
@@ -321,4 +331,25 @@ if (el.messageForm) {
     send({ type: 'send_message', conversationId, content: payloadContent });
     if (el.messageInput) el.messageInput.value = '';
   });
+}
+
+// ✅ Logout Button
+const logoutBtn = document.getElementById('logout-btn');
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('chat_session_token');
+        localStorage.removeItem('chat_username');
+        window.closeConnection();
+        window.location.reload();
+    });
+}
+
+// ✅ Delete Account Button
+const deleteAccountBtn = document.getElementById('delete-account-btn');
+if (deleteAccountBtn) {
+    deleteAccountBtn.addEventListener('click', () => {
+        if (confirm('WARNING: This will permanently delete your account and all your messages. This cannot be undone. Are you sure?')) {
+            window.send({ type: 'delete_account' });
+        }
+    });
 }

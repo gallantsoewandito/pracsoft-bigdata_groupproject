@@ -22,7 +22,9 @@ const {
     handleAcceptGroupInvite,
     handleLeaveGroup,
     handleGetPendingInvites,
-    handleDeclineGroupInvite
+    handleDeclineGroupInvite,
+    handleResumeSession,
+    handleDeleteAccount
 } = require('./handler');
 
 const BACKEND_URL = process.env.NODE_ENV === 'production' 
@@ -183,6 +185,8 @@ wss.on('connection', (ws) => {
             switch (data.type) {
                 case 'signup': await handleSignup(ws, data); break;
                 case 'login': await handleLogin(ws, data); break;
+                case 'resume_session': await handleResumeSession(ws, data); break; // NEW
+                case 'delete_account': await handleDeleteAccount(ws, data); break;
                 case 'create_conversation': await handleCreateConversation(ws); break;
                 case 'join_conversation': await handleJoinConversation(ws, data); break;
                 case 'send_message': await handleSendMessage(ws, data); break;
