@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
-const fs = require('fs');
 const supabase = require('./db');
 
 const {
@@ -34,7 +33,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, maxPayload: 64 * 1024 });
 
-// 1. CORS Middleware (MUST be at the top)
+// 1. CORS Middleware
 app.use((req, res, next) => {
     const allowedOrigins = [
         'https://pracsoft-bigdatagroupproject.vercel.app',
@@ -59,106 +58,13 @@ app.use((req, res, next) => {
 // 2. Serve Static Files
 app.use(express.static(path.join(__dirname, '../client')));
 
-// 3. Attachment Upload Configuration
-const UPLOAD_DIR = path.join(__dirname, '../uploads');
-const MAX_UPLOAD_BYTES = 75 * 1024 * 1024;
-const MAX_UPLOAD_STORAGE_BYTES = 500 * 1024 * 1024;
-
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-
-function safeExtension(fileName) {
-    const ext = path.extname(String(fileName || '')).toLowerCase();
-    return /^\.[a-z0-9]{1,10}$/.test(ext) ? ext : '';
-}
-
-function makeStoredFileName(originalName) {
-    const randomPart = Math.random().toString(36).slice(2, 12);
-    return `${Date.now()}-${randomPart}${safeExtension(originalName)}`;
-}
-
-async function listStoredUploads() {
-    const names = await fs.promises.readdir(UPLOAD_DIR);
-    const rows = [];
-    for (const name of names) {
-        if (name.startsWith('.upload-')) continue;
-        const fullPath = path.join(UPLOAD_DIR, name);
-        try {
-            const stat = await fs.promises.stat(fullPath);
-            if (stat.isFile()) {
-                rows.push({ name, fullPath, size: stat.size, mtimeMs: stat.mtimeMs });
-            }
-        } catch (_) {}
-    }
-    return rows;
-}
-
-async function makeRoomForUpload(incomingBytes) {
-    if (incomingBytes > MAX_UPLOAD_STORAGE_BYTES) return false;
-    const files = await listStoredUploads();
-    let total = files.reduce((sum, file) => sum + file.size, 0);
-    files.sort((a, b) => a.mtimeMs - b.mtimeMs);
-    for (const file of files) {
-        if (total + incomingBytes <= MAX_UPLOAD_STORAGE_BYTES) break;
-        try {
-            await fs.promises.unlink(file.fullPath);
-            total -= file.size;
-        } catch (err) {
-            console.warn(`Could not delete old attachment ${file.name}:`, err.message);
-        }
-    }
-    return total + incomingBytes <= MAX_UPLOAD_STORAGE_BYTES;
-}
-
-function streamRequestToFile(req, outputPath, maxBytes) {
-    return new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(outputPath, { flags: 'wx' });
-        let bytes = 0;
-        let settled = false;
-
-        const fail = (err) => {
-            if (settled) return;
-            settled = true;
-            output.destroy();
-            fs.promises.unlink(outputPath).catch(() => {});
-            reject(err);
-        };
-
-        req.on('data', (chunk) => {
-            if (settled) return;
-            bytes += chunk.length;
-            if (bytes > maxBytes) {
-                req.pause();
-                fail(Object.assign(new Error('File too large.'), { code: 'FILE_TOO_LARGE' }));
-                return;
-            }
-            if (!output.write(chunk)) req.pause();
-        });
-
-        output.on('drain', () => { if (!settled) req.resume(); });
-
-        req.on('end', () => {
-            if (settled) return;
-            output.end(() => {
-                if (settled) return;
-                settled = true;
-                resolve(bytes);
-            });
-        });
-
-        req.on('aborted', () => fail(new Error('Upload aborted.')));
-        req.on('error', fail);
-        output.on('error', fail);
-    });
-}
-
-// 4. Upload Route
+// 3. Attachment Upload Route (Supabase Storage ONLY)
 app.post('/api/upload', async (req, res) => {
     const username = String(req.get('x-chat-username') || '');
     const conversationId = String(req.get('x-conversation-id') || '');
     const originalName = decodeURIComponent(String(req.query.name || 'attachment'));
     const mimeType = decodeURIComponent(String(req.query.type || 'application/octet-stream'));
+    const MAX_UPLOAD_BYTES = 75 * 1024 * 1024;
 
     if (!username || !clients.has(username)) {
         return res.status(401).json({ error: 'You must be logged in to upload files.' });
@@ -174,6 +80,7 @@ app.post('/api/upload', async (req, res) => {
         return res.status(413).json({ error: 'File is larger than the 75 MB limit.' });
     }
 
+    // Collect the file stream into a Buffer
     const chunks = [];
     let totalBytes = 0;
 
@@ -190,11 +97,16 @@ app.post('/api/upload', async (req, res) => {
     });
 
     const buffer = Buffer.concat(chunks);
-    const storedName = makeStoredFileName(originalName);
+    
+    // Generate safe filename
+    const randomPart = Math.random().toString(36).slice(2, 12);
+    const ext = path.extname(originalName).toLowerCase();
+    const safeExt = /^\.[a-z0-9]{1,10}$/.test(ext) ? ext : '';
+    const storedName = `${Date.now()}-${randomPart}${safeExt}`;
     const filePath = `${conversationId}/${storedName}`;
 
     try {
-        // Upload to Supabase Storage
+        // Upload directly to Supabase Storage
         const { data, error } = await supabase
             .storage
             .from('chat-attachments')
@@ -229,29 +141,7 @@ app.post('/api/upload', async (req, res) => {
     }
 });
 
-// 5. Serve Uploaded Files
-app.get('/uploads/:fileName', async (req, res) => {
-    const requested = String(req.params.fileName || '');
-    const safeName = path.basename(requested);
-    if (!safeName || safeName !== requested) return res.sendStatus(400);
-
-    const fullPath = path.join(UPLOAD_DIR, safeName);
-
-    try {
-        await fs.promises.access(fullPath, fs.constants.R_OK);
-    } catch (_) {
-        return res.status(404).send('Attachment expired or was removed to save storage space.');
-    }
-
-    if (req.query.download === '1') {
-        const requestedDownloadName = path.basename(String(req.query.name || safeName));
-        return res.download(fullPath, requestedDownloadName || safeName);
-    }
-
-    return res.sendFile(fullPath);
-});
-
-// 6. WebSocket Heartbeat
+// 4. WebSocket Heartbeat
 setInterval(() => {
     wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
@@ -262,7 +152,7 @@ setInterval(() => {
     });
 }, 30000);
 
-// 7. WebSocket Connection Handling
+// 5. WebSocket Connection Handling
 wss.on('connection', (ws) => {
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
