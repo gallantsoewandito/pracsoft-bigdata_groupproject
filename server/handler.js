@@ -275,10 +275,27 @@ async function handleJoinConversation(ws, data) {
         .eq('id', conversationId)
         .single();
 
+    let allMembers = Array.from(conversations.get(conversationId) || []);
+    const { data: memberRows } = await supabase
+        .from('conversation_members')
+        .select('user_id')
+        .eq('conversation_id', conversationId);
+        
+    if (memberRows && memberRows.length > 0) {
+        const memberIds = memberRows.map(m => m.user_id);
+        const { data: memberUsers } = await supabase
+            .from('users')
+            .select('id, username')
+            .in('id', memberIds);
+        if (memberUsers) {
+            allMembers = memberUsers.map(u => u.username);
+        }
+    }
+
     send(ws, {
         type: 'conversation_joined',
         conversationId,
-        members: Array.from(conversations.get(conversationId)),
+        members: allMembers,
         isGroup: groupConversations.has(conversationId),
         history: formattedHistory,
         conversationKey: convoData ? convoData.conversation_key : null
@@ -545,10 +562,26 @@ async function handleStartDM(ws, data) {
             .select('conversation_key')
             .eq('id', existingConversationId)
             .single();
+        let allMembers = [ws.username, targetUsername]; // Fallback
+        const { data: memberRows } = await supabase
+            .from('conversation_members')
+            .select('user_id')
+            .eq('conversation_id', existingConversationId);
+            
+        if (memberRows && memberRows.length > 0) {
+            const memberIds = memberRows.map(m => m.user_id);
+            const { data: memberUsers } = await supabase
+                .from('users')
+                .select('id, username')
+                .in('id', memberIds);
+            if (memberUsers) {
+                allMembers = memberUsers.map(u => u.username);
+            }
+        }
         send(ws, {
             type: 'conversation_joined', 
             conversationId: existingConversationId,
-            members: [ws.username, targetUsername],
+            members: allMembers,
             history: formattedHistory,
             conversationKey: convoData ? convoData.conversation_key : null
         });
