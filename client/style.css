@@ -415,6 +415,16 @@ html, body {
   text-align: right;
 }
 
+.receipt {
+  margin-left: 0.35rem;
+  font-size: 0.65rem;
+  cursor: default;
+}
+
+.receipt-sent      { color: rgba(255, 255, 255, 0.55); }
+.receipt-delivered { color: rgba(255, 255, 255, 0.75); }
+.receipt-read      { color: #7dffa8; }
+
 .message-sent .content {
   font-size: 0.95rem;
   line-height: 1.45;

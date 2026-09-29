@@ -15,6 +15,7 @@ const {
     handleLogin,
     handleCreateConversation,
     handleJoinConversation,
+    handleReceipt,
     handleSendMessage,
     handleStartDM,
     handleCreateGroup,
@@ -189,6 +190,7 @@ wss.on('connection', (ws) => {
                 case 'delete_account': await handleDeleteAccount(ws, data); break;
                 case 'create_conversation': await handleCreateConversation(ws); break;
                 case 'join_conversation': await handleJoinConversation(ws, data); break;
+                case 'receipt': await handleReceipt(ws, data); break;
                 case 'send_message': await handleSendMessage(ws, data); break;
                 case 'typing': handleTyping(ws, data); break;
                 case 'start_dm': await handleStartDM(ws, data); break;

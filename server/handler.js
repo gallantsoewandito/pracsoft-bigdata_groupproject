@@ -147,11 +147,9 @@ async function handleLogin(ws, data) {
     ws.username = user.username;
     clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
 
-    // ✅ THIS WAS MISSING: Generate and save the session token on login
     const sessionToken = data.sessionToken || crypto.randomUUID();
     await supabase.from('users').update({ session_token: sessionToken }).eq('id', user.id);
 
-    // ✅ THIS WAS MISSING: Send the sessionToken back to the client
     send(ws, { type: 'registered', username: user.username, sessionToken });
     await loadInitialData(ws, user.id);
 }
@@ -203,6 +201,86 @@ async function handleCreateConversation(ws) {
     send(ws, { type: 'conversation_created', conversationId });
 }
 
+const ISO_TS = /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/;
+
+async function getMembersWithReceipts(conversationId) {
+    const { data: rows } = await supabase
+        .from('conversation_members')
+        .select('user_id, delivered_at, read_at')
+        .eq('conversation_id', conversationId);
+
+    const result = { members: [], receipts: {} };
+    if (!rows || rows.length === 0) return result;
+
+    const { data: users } = await supabase
+        .from('users')
+        .select('id, username')
+        .in('id', rows.map(r => r.user_id));
+
+    const nameById = new Map((users || []).map(u => [u.id, u.username]));
+    for (const row of rows) {
+        const name = nameById.get(row.user_id);
+        if (!name) continue;
+        result.members.push(name);
+        result.receipts[name] = { deliveredAt: row.delivered_at, readAt: row.read_at };
+    }
+    return result;
+}
+
+async function handleReceipt(ws, data) {
+    if (!requireRegistered(ws)) return;
+    const { conversationId, kind, upTo } = data;
+
+    if (kind !== 'delivered' && kind !== 'read') return;
+    if (typeof upTo !== 'string' || !ISO_TS.test(upTo)) return;
+
+    const upToMs = Date.parse(upTo);
+    if (!Number.isFinite(upToMs) || upToMs > Date.now() + 60000) return;
+
+    const members = conversations.get(conversationId);
+    if (!members || !members.has(ws.username)) return;
+
+    const clientData = clients.get(ws.username);
+    if (!clientData) return;
+
+    const { data: row } = await supabase
+        .from('conversation_members')
+        .select('delivered_at, read_at')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', clientData.id)
+        .maybeSingle();
+    if (!row) return;
+
+    const isNewer = current => !current || Date.parse(current) < upToMs;
+    const patch = {};
+    if (isNewer(row.delivered_at)) patch.delivered_at = upTo;
+    if (kind === 'read' && isNewer(row.read_at)) patch.read_at = upTo;
+    if (Object.keys(patch).length === 0) return;
+
+    const { error } = await supabase
+        .from('conversation_members')
+        .update(patch)
+        .eq('conversation_id', conversationId)
+        .eq('user_id', clientData.id);
+    if (error) {
+        console.error('Receipt update error:', error);
+        return;
+    }
+
+    const payload = {
+        type: 'receipt_update',
+        conversationId,
+        username: ws.username,
+        deliveredAt: patch.delivered_at || row.delivered_at,
+        readAt: patch.read_at || row.read_at
+    };
+    for (const username of members) {
+        if (username === ws.username) continue;
+        const client = clients.get(username);
+        if (client && client.ws && client.ws.readyState === 1) send(client.ws, payload);
+    }
+}
+
 async function handleJoinConversation(ws, data) {
     if (!requireRegistered(ws)) return;
     const { conversationId } = data;
@@ -240,7 +318,6 @@ async function handleJoinConversation(ws, data) {
 
     conversations.get(conversationId).add(ws.username);
 
-    // 1. Fetch messages WITHOUT the join
     const { data: history, error } = await supabase
         .from('messages')
         .select('id, content, created_at, sender_id')
@@ -278,32 +355,19 @@ async function handleJoinConversation(ws, data) {
 
     const { data: convoData } = await supabase
         .from('conversations')
-        .select('conversation_key')
+        .select('conversation_key, name')
         .eq('id', conversationId)
         .single();
 
-    let allMembers = Array.from(conversations.get(conversationId) || []);
-    const { data: memberRows } = await supabase
-        .from('conversation_members')
-        .select('user_id')
-        .eq('conversation_id', conversationId);
-        
-    if (memberRows && memberRows.length > 0) {
-        const memberIds = memberRows.map(m => m.user_id);
-        const { data: memberUsers } = await supabase
-            .from('users')
-            .select('id, username')
-            .in('id', memberIds);
-        if (memberUsers) {
-            allMembers = memberUsers.map(u => u.username);
-        }
-    }
+    const { members: allMembers, receipts } = await getMembersWithReceipts(conversationId);
 
     send(ws, {
         type: 'conversation_joined',
         conversationId,
         members: allMembers,
-        isGroup: groupConversations.has(conversationId),
+        receipts,
+        isGroup: groupConversations.has(conversationId) || !!(convoData && convoData.name),
+        name: convoData ? convoData.name : null,
         history: formattedHistory,
         conversationKey: convoData ? convoData.conversation_key : null
     });
@@ -569,26 +633,12 @@ async function handleStartDM(ws, data) {
             .select('conversation_key')
             .eq('id', existingConversationId)
             .single();
-        let allMembers = [ws.username, targetUsername]; // Fallback
-        const { data: memberRows } = await supabase
-            .from('conversation_members')
-            .select('user_id')
-            .eq('conversation_id', existingConversationId);
-            
-        if (memberRows && memberRows.length > 0) {
-            const memberIds = memberRows.map(m => m.user_id);
-            const { data: memberUsers } = await supabase
-                .from('users')
-                .select('id, username')
-                .in('id', memberIds);
-            if (memberUsers) {
-                allMembers = memberUsers.map(u => u.username);
-            }
-        }
+        const { members: allMembers, receipts } = await getMembersWithReceipts(existingConversationId);
         send(ws, {
             type: 'conversation_joined', 
             conversationId: existingConversationId,
             members: allMembers,
+            receipts,
             history: formattedHistory,
             conversationKey: convoData ? convoData.conversation_key : null
         });
@@ -661,7 +711,6 @@ async function handleCreateGroup(ws, data) {
         return;
     }
 
-    // ✅ Save the raw AES key and the group name
     const { data: newRow, error: createError } = await supabase
         .from('conversations')
         .insert([{ 
@@ -679,16 +728,14 @@ async function handleCreateGroup(ws, data) {
     }
 
     const newConvoId = newRow.id;
-    const allUserIds = [currentUserData.id, ...targetUsers.map(u => u.id)];
-    const memberInserts = allUserIds.map(userId => ({ conversation_id: newConvoId, user_id: userId }));
+    await supabase
+        .from('conversation_members')
+        .insert([{ conversation_id: newConvoId, user_id: currentUserData.id }]);
 
-    await supabase.from('conversation_members').insert(memberInserts);
-
-    conversations.set(newConvoId, new Set([ws.username, ...uniqueTargets]));
+    conversations.set(newConvoId, new Set([ws.username]));
     groupConversations.add(newConvoId);
     conversationKeys.set(newConvoId, data.conversationKey);
 
-    // Send invites to members with the raw AES key
     for (const user of targetUsers) {
         const invite = {
             conversationId: newConvoId,
@@ -706,7 +753,7 @@ async function handleCreateGroup(ws, data) {
     send(ws, { 
         type: 'conversation_created', 
         conversationId: newConvoId,
-        members: [ws.username, ...uniqueTargets],
+        members: [ws.username],
         isGroup: true,
         name: name || 'Group Chat',
         conversationKey: data.conversationKey,
@@ -782,6 +829,7 @@ module.exports = {
     handleLogin,
     handleCreateConversation,
     handleJoinConversation,
+    handleReceipt,
     handleSendMessage,
     handleTyping,
     handleStartDM,
@@ -791,5 +839,6 @@ module.exports = {
     handleGetPendingInvites,
     handleDeclineGroupInvite,
     handleResumeSession,
-    handleDeleteAccount
+    handleDeleteAccount,
+    handleReceipt
 };

@@ -24,6 +24,38 @@ function findDm(user) {
   return null;
 }
 
+function msgTime(m) { return m.createdAt || m.created_at; }
+
+function latestIncomingTime(convo) {
+  for (let i = convo.messages.length - 1; i >= 0; i--) {
+    if (convo.messages[i].senderId !== state.username) return msgTime(convo.messages[i]);
+  }
+  return null;
+}
+
+export function sendReceipt(conversationId, kind) {
+  const convo = state.conversations.get(conversationId);
+  if (!convo) return;
+  const upTo = latestIncomingTime(convo);
+  if (!upTo) return;
+
+  const sent = state.receiptsSent.get(conversationId) || { delivered: null, read: null };
+  const ts = Date.parse(upTo);
+  const already = sent[kind] && Date.parse(sent[kind]) >= ts;
+  if (already) return;
+
+  sent[kind] = upTo;
+  if (kind === 'read') sent.delivered = upTo;
+  state.receiptsSent.set(conversationId, sent);
+  send({ type: 'receipt', conversationId, kind, upTo });
+}
+
+export function markReadIfVisible(conversationId) {
+  if (!conversationId || conversationId !== state.activeConversationId) return;
+  if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+  sendReceipt(conversationId, 'read');
+}
+
 export function connect(username, password, authType, sessionToken = null) {
   if (isConnecting) {
     console.warn('Connection already in progress. Please wait.');
@@ -95,6 +127,7 @@ export function connect(username, password, authType, sessionToken = null) {
     state.publicKeys.clear();
     state.pendingInvites.clear();
     state.unreadCounts.clear();
+    state.receiptsSent.clear();
     renderLoginError('Disconnected from server.');
     document.getElementById('app').classList.add('is-hidden');
     document.getElementById('login-screen').classList.remove('is-hidden');
@@ -187,7 +220,6 @@ export async function handleServerMessage(data) {
             rawKeyArray = Object.values(rawKeyArray);
           }
           
-          // Ensure it is actually an array of numbers
           if (Array.isArray(rawKeyArray) && rawKeyArray.length === 32) {
             key = await importKey(rawKeyArray);
             state.conversationKeys.set(data.conversationId, key);
@@ -206,7 +238,6 @@ export async function handleServerMessage(data) {
           try {
             msg.content = await decryptText(msg.content, key);
           } catch (msgError) {
-            // Safely fallback to raw text if decryption fails
           }
           return msg;
         }));
@@ -221,7 +252,8 @@ export async function handleServerMessage(data) {
         messages: decryptedHistory,
         lastMessageAt: lastMsg,
         isGroup: data.isGroup,
-        name: data.name
+        name: data.name,
+        receipts: data.receipts || {}
       });
 
       if (requestedGroupId && data.conversationId === requestedGroupId) {
@@ -234,7 +266,9 @@ export async function handleServerMessage(data) {
         setActiveConversation(data.conversationId);
       }
 
-      // A newly joined conversation may already have an unread count waiting for it.
+      sendReceipt(data.conversationId, 'delivered');
+      markReadIfVisible(data.conversationId);
+
       renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       break;
     }
@@ -298,6 +332,10 @@ export async function handleServerMessage(data) {
       }
 
       appendMessage(data.conversationId, { ...data, content: displayContent });
+      if (data.senderId !== state.username) {
+        sendReceipt(data.conversationId, 'delivered');
+        markReadIfVisible(data.conversationId);
+      }
       setTyping(data.conversationId, data.senderId, false);
       
       if (data.conversationId === state.activeConversationId) {
@@ -312,7 +350,6 @@ export async function handleServerMessage(data) {
       if (data.conversationId !== state.activeConversationId && data.senderId !== state.username) {
         incrementUnread(data.conversationId);
 
-        // Immediately show/update the red unread badge in the sidebar.
         renderOnlineUsers(window.allUsers || [], state.onlineUsers);
       }
 
@@ -331,6 +368,15 @@ export async function handleServerMessage(data) {
       break;
 
     default:
+    case 'receipt_update': {
+      const convo = state.conversations.get(data.conversationId);
+      if (!convo) break;
+      convo.receipts = convo.receipts || {};
+      convo.receipts[data.username] = { deliveredAt: data.deliveredAt, readAt: data.readAt };
+      if (data.conversationId === state.activeConversationId) renderActiveConversation();
+      break;
+    }
+
       console.warn('Unhandled message type from server:', data.type);
   }
 }
@@ -340,4 +386,5 @@ export function setActiveConversation(conversationId) {
   clearUnread(conversationId);
   renderActiveConversation();
   renderOnlineUsers(window.allUsers || [], state.onlineUsers);
+  markReadIfVisible(conversationId);
 }

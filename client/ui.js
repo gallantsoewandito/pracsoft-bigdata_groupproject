@@ -372,6 +372,47 @@ export function renderOnlineUsers(users, onlineUsersSet) {
   }
 }
 
+function messageStatus(convo, msg) {
+  const others = convo.members.filter(m => m !== state.username);
+  if (others.length === 0) return { level: 'sent', readBy: [], deliveredTo: [], others };
+
+  const ts = Date.parse(msg.createdAt || msg.created_at);
+  const receipts = convo.receipts || {};
+  const reached = (u, field) => {
+    const v = receipts[u] && receipts[u][field];
+    return v && Date.parse(v) >= ts;
+  };
+
+  const readBy = others.filter(u => reached(u, 'readAt'));
+  const deliveredTo = others.filter(u => reached(u, 'deliveredAt'));
+
+  let level = 'sent';
+  if (readBy.length === others.length) level = 'read';
+  else if (deliveredTo.length === others.length) level = 'delivered';
+  return { level, readBy, deliveredTo, others };
+}
+
+function buildReceiptEl(convo, msg) {
+  const { level, readBy, deliveredTo, others } = messageStatus(convo, msg);
+  const span = document.createElement('span');
+  span.className = `receipt receipt-${level}`;
+  const icon = level === 'sent' ? 'fa-check' : 'fa-check-double';
+  span.innerHTML = `<i class="fas ${icon}"></i>`;
+
+  if (level === 'read') span.title = 'Read';
+  else if (level === 'delivered') span.title = 'Delivered';
+  else span.title = 'Sent';
+
+  if (convo.isGroup && level !== 'read' && others.length) {
+    const parts = [];
+    if (readBy.length) parts.push(`Read by: ${readBy.join(', ')}`);
+    const deliveredOnly = deliveredTo.filter(u => !readBy.includes(u));
+    if (deliveredOnly.length) parts.push(`Delivered to: ${deliveredOnly.join(', ')}`);
+    if (parts.length) span.title = parts.join('\n');
+  }
+  return span;
+}
+
 export function renderActiveConversation() {
   if (!el.activeTitle || !el.messageHistory) return;
 
@@ -450,7 +491,11 @@ export function renderActiveConversation() {
       <div class="content"></div>
     `;
     div.querySelector('.sender').textContent = msg.senderId;
-    div.querySelector('.time').textContent = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeEl = div.querySelector('.time');
+    timeEl.textContent = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (msg.senderId === state.username) {
+      timeEl.appendChild(buildReceiptEl(convo, msg));
+    }
     renderMessageContent(div.querySelector('.content'), msg.content);
     el.messageHistory.appendChild(div);
   });
@@ -528,8 +573,11 @@ export function renderInvites() {
 
   if (invites.length === 0) {
     el.inviteModalBody.innerHTML = '<p class="has-text-centered has-text-grey">No pending invitations.</p>';
+    if (el.inviteModal) el.inviteModal.classList.remove('is-active');
     return;
   }
+
+  if (el.inviteModal) el.inviteModal.classList.add('is-active');
 
   for (const invite of invites) {
     const div = document.createElement('div');

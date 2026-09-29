@@ -10,7 +10,7 @@ import {
   moveMessageSearch,
   clearMessageSearch
 } from './ui.js';
-import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId, resumeSession, closeConnection } from './network.js';
+import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId, resumeSession, closeConnection, markReadIfVisible } from './network.js';
 import { generateKey, exportKey, encryptText } from './crypto.js';
 
 const initialToken = localStorage.getItem('chat_session_token');
@@ -31,6 +31,9 @@ window.addEventListener('DOMContentLoaded', () => {
         window.resumeSession(username, token);
     }
 });
+
+  window.addEventListener('focus', () => markReadIfVisible(state.activeConversationId));
+  document.addEventListener('visibilitychange', () => markReadIfVisible(state.activeConversationId));
 
 // Expose functions to the window object
 window.state = state;
@@ -105,8 +108,6 @@ async function uploadAttachment(file) {
   try { result = await response.json(); } catch (_) {}
   if (!response.ok) throw new Error(result.error || `Upload failed (${response.status}).`);
 
-  // The attachment descriptor travels through the SAME encrypted message path
-  // already used for normal chat text. No key-management code is changed.
   const descriptor = ATTACHMENT_PREFIX + JSON.stringify(result);
   const encryptedDescriptor = await encryptText(descriptor, key);
   send({ type: 'send_message', conversationId, content: encryptedDescriptor });
@@ -146,7 +147,6 @@ if (attachFileBtn && attachmentInput) {
   });
 }
 
-// Search users, DMs, and group chats in the sidebar.
 if (el.sidebarSearchInput) {
   el.sidebarSearchInput.addEventListener('input', () => {
     setSidebarSearchQuery(el.sidebarSearchInput.value);
@@ -161,7 +161,6 @@ if (el.sidebarSearchInput) {
   });
 }
 
-// Search the already-loaded, decrypted messages in the active conversation.
 if (el.messageSearchInput) {
   el.messageSearchInput.addEventListener('input', () => {
     setMessageSearchQuery(el.messageSearchInput.value);
@@ -199,7 +198,6 @@ function stopTyping() {
   typingConversationId = null;
 }
 
-// ✅ SAFE: Only add listener if the element exists
 if (el.messageInput) {
   el.messageInput.addEventListener('input', () => {
     const conversationId = state.activeConversationId;
@@ -245,7 +243,6 @@ if (authBtn) {
   });
 }
 
-// ✅ SAFE Group Modal Listeners
 const newGroupBtn = document.getElementById('new-group-chat-btn');
 if (newGroupBtn) {
   newGroupBtn.addEventListener('click', () => {
@@ -274,7 +271,6 @@ if (leaveGroupBtn) {
   });
 }
 
-// ✅ SAFE Invite Modal Listeners
 if (el.inviteModalBody) {
   el.inviteModalBody.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
@@ -314,7 +310,6 @@ if (confirmGroupBtn) {
       return;
     }
 
-    // Generate ONE simple AES key for the whole group
     const key = await generateKey();
     const rawKey = await exportKey(key);
 
@@ -323,7 +318,6 @@ if (confirmGroupBtn) {
   });
 }
 
-// ✅ SAFE Message Form Listener
 if (el.messageForm) {
   el.messageForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -344,7 +338,6 @@ if (el.messageForm) {
   });
 }
 
-// ✅ Logout Button
 const logoutBtn = document.getElementById('logout-btn');
 if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
@@ -355,7 +348,6 @@ if (logoutBtn) {
     });
 }
 
-// ✅ Delete Account Button
 const deleteAccountBtn = document.getElementById('delete-account-btn');
 if (deleteAccountBtn) {
     deleteAccountBtn.addEventListener('click', () => {
