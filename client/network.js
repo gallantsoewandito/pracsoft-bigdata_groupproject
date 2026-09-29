@@ -24,7 +24,7 @@ function findDm(user) {
   return null;
 }
 
-export function connect(username, password, authType) {
+export function connect(username, password, authType, sessionToken = null) {
   if (isConnecting) {
     console.warn('Connection already in progress. Please wait.');
     return;
