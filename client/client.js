@@ -4,6 +4,7 @@ import {
   renderLoginError,
   renderAll,
   renderGroupModal,
+  renderInvites,
   closeInviteModal,
   setSidebarSearchQuery,
   setMessageSearchQuery,
@@ -12,17 +13,6 @@ import {
 } from './ui.js';
 import { connect, send, setActiveConversation, setRequestedTarget, setRequestedGroupId, resumeSession, closeConnection, markReadIfVisible } from './network.js';
 import { generateKey, exportKey, encryptText } from './crypto.js';
-
-const initialToken = localStorage.getItem('chat_session_token');
-const initialUsername = localStorage.getItem('chat_username');
-
-if (initialToken && initialUsername) {
-  const loginScreen = document.getElementById('login-screen');
-  const app = document.getElementById('app');
-  if (app) {
-    app.classList.remove('is-hidden');
-  }
-}
 
 window.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem('chat_session_token');
@@ -284,6 +274,8 @@ if (el.inviteModalBody) {
     }
   });
 }
+
+if (el.showInvitesBtn) el.showInvitesBtn.addEventListener('click', renderInvites);
 
 const closeInviteBtn = document.getElementById('close-invite-modal-btn');
 if (closeInviteBtn) closeInviteBtn.addEventListener('click', closeInviteModal);

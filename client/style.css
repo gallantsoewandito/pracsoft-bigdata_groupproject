@@ -650,7 +650,8 @@ html, body {
 }
 
 .attachment-content {
-  width: min(440px, 60vw);
+  width: 440px;
+  max-width: 100%;
 }
 
 .attachment-card {
@@ -667,6 +668,10 @@ html, body {
   object-fit: contain;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.08);
+}
+
+.attachment-image {
+  min-height: 120px;
 }
 
 .attachment-audio {
@@ -725,10 +730,6 @@ html, body {
 }
 
 @media (max-width: 700px) {
-  .attachment-content {
-    width: min(70vw, 360px);
-  }
-
   .attachment-image,
   .attachment-video {
     max-height: 280px;

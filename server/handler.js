@@ -99,11 +99,20 @@ async function handleSignup(ws, data) {
         return;
     }
 
+    const sessionToken = crypto.randomUUID();
+    const { error: tokenError } = await supabase
+        .from('users')
+        .update({ session_token: sessionToken })
+        .eq('id', newUser.id);
+
+    if (tokenError) {
+        console.error('Session token save failed:', tokenError);
+        sendError(ws, 'Account created, but sign-in failed. Please log in.');
+        return;
+    }
+
     ws.username = newUser.username;
     clients.set(newUser.username, { ws: ws, id: newUser.id, lastMessageTime: 0 });
-
-    const sessionToken = data.sessionToken || crypto.randomUUID();
-    await supabase.from('users').update({ session_token: sessionToken }).eq('id', newUser.id);
 
     send(ws, { type: 'registered', username: newUser.username, sessionToken });
     await loadInitialData(ws, newUser.id);
@@ -136,6 +145,18 @@ async function handleLogin(ws, data) {
         return;
     }
 
+    const sessionToken = crypto.randomUUID();
+    const { error: tokenError } = await supabase
+        .from('users')
+        .update({ session_token: sessionToken })
+        .eq('id', user.id);
+
+    if (tokenError) {
+        console.error('Session token save failed:', tokenError);
+        sendError(ws, 'Login failed. Please try again.');
+        return;
+    }
+
     if (clients.has(user.username)) {
         const oldClient = clients.get(user.username);
         send(oldClient.ws, { type: 'error', message: 'You have been logged in from another device.' });
@@ -146,9 +167,6 @@ async function handleLogin(ws, data) {
 
     ws.username = user.username;
     clients.set(user.username, { ws: ws, id: user.id, lastMessageTime: 0 });
-
-    const sessionToken = data.sessionToken || crypto.randomUUID();
-    await supabase.from('users').update({ session_token: sessionToken }).eq('id', user.id);
 
     send(ws, { type: 'registered', username: user.username, sessionToken });
     await loadInitialData(ws, user.id);
@@ -589,12 +607,19 @@ async function handleStartDM(ws, data) {
     let existingConversationId = null;
     for (const [convoId, count] of Object.entries(convoCounts)) {
         if (count === 2) {
+            const { data: convoRow } = await supabase
+                .from('conversations')
+                .select('name')
+                .eq('id', convoId)
+                .maybeSingle();
+            if (convoRow && convoRow.name) continue;
+
             const { count: totalMembers, error: countError } = await supabase
                 .from('conversation_members')
                 .select('*', { count: 'exact', head: true })
                 .eq('conversation_id', convoId);
             
-            if (!countError && totalMembers ===2) {
+            if (!countError && totalMembers === 2) {
                 existingConversationId = convoId;
                 break;
             }
@@ -639,6 +664,7 @@ async function handleStartDM(ws, data) {
             conversationId: existingConversationId,
             members: allMembers,
             receipts,
+            isGroup: false,
             history: formattedHistory,
             conversationKey: convoData ? convoData.conversation_key : null
         });
@@ -765,13 +791,19 @@ async function handleCreateGroup(ws, data) {
 
 async function handleResumeSession(ws, data) {
     const { username, sessionToken } = data;
+
+    if (typeof username !== 'string' || typeof sessionToken !== 'string' || !sessionToken) {
+        sendError(ws, 'Invalid or expired session. Please log in again.');
+        return;
+    }
+
     const { data: user, error } = await supabase
         .from('users')
         .select('id, username, session_token')
         .eq('username', username)
         .single();
 
-    if (error || !user || user.session_token !== sessionToken) {
+    if (error || !user || !user.session_token || user.session_token !== sessionToken) {
         sendError(ws, 'Invalid or expired session. Please log in again.');
         return;
     }
@@ -813,6 +845,7 @@ async function handleDeleteAccount(ws, data) {
 
     ws.username = null;
     clients.delete(usernameToDelete);
+    send(ws, { type: 'account_deleted' });
     ws.close();
     broadcastUserList();
 }

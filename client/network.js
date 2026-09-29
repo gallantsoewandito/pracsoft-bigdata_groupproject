@@ -175,8 +175,18 @@ export async function handleServerMessage(data) {
       send({ type: 'get_pending_invites' });
       break;
 
+    case 'account_deleted':
+      localStorage.removeItem('chat_session_token');
+      localStorage.removeItem('chat_username');
+      window.location.reload();
+      break;
+
     case 'error':
       if (!state.username) {
+        localStorage.removeItem('chat_session_token');
+        localStorage.removeItem('chat_username');
+        document.getElementById('app').classList.add('is-hidden');
+        document.getElementById('login-screen').classList.remove('is-hidden');
         renderLoginError(data.message);
         resetAuthButton();
       } else {
@@ -302,6 +312,7 @@ export async function handleServerMessage(data) {
       state.unreadCounts.delete(data.conversationId);
       removeConversation(data.conversationId);
       renderAll();
+      renderTypingIndicator();
       break;
 
     case 'typing':
@@ -321,15 +332,7 @@ export async function handleServerMessage(data) {
       }
 
       const msgKey = state.conversationKeys.get(data.conversationId);
-      let displayContent = data.content;
-      
-      if (msgKey) {
-        try { 
-          displayContent = await decryptText(data.content, msgKey); 
-        } catch (error) { 
-          console.warn('Failed to decrypt incoming message.'); 
-        }
-      }
+      const displayContent = await decryptText(data.content, msgKey);
 
       appendMessage(data.conversationId, { ...data, content: displayContent });
       if (data.senderId !== state.username) {
@@ -367,7 +370,6 @@ export async function handleServerMessage(data) {
       renderActiveConversation();
       break;
 
-    default:
     case 'receipt_update': {
       const convo = state.conversations.get(data.conversationId);
       if (!convo) break;
@@ -377,6 +379,7 @@ export async function handleServerMessage(data) {
       break;
     }
 
+    default:
       console.warn('Unhandled message type from server:', data.type);
   }
 }
@@ -385,6 +388,7 @@ export function setActiveConversation(conversationId) {
   state.activeConversationId = conversationId;
   clearUnread(conversationId);
   renderActiveConversation();
+  renderTypingIndicator();
   renderOnlineUsers(window.allUsers || [], state.onlineUsers);
   markReadIfVisible(conversationId);
 }

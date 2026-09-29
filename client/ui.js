@@ -24,7 +24,9 @@ export const el = {
   typingIndicator: document.getElementById('typing-indicator') || null,
   attachmentInput: document.getElementById('attachment-input'),
   attachFileBtn: document.getElementById('attach-file-btn'),
-  uploadStatus: document.getElementById('upload-status')
+  uploadStatus: document.getElementById('upload-status'),
+  leaveGroupBtn: document.getElementById('leave-group-btn'),
+  showInvitesBtn: document.getElementById('show-invites-btn')
 };
 
 const ATTACHMENT_PREFIX = '[[ATTACHMENT_V1]]';
@@ -124,6 +126,11 @@ function renderAttachment(container, attachment) {
     img.src = attachment.url;
     img.alt = attachment.name;
     img.loading = 'lazy';
+    img.addEventListener('load', () => {
+      if (stickToBottomAfterRender) {
+        el.messageHistory.scrollTop = el.messageHistory.scrollHeight;
+      }
+    }, { once: true });
     img.addEventListener('error', () => showAttachmentExpired(container, attachment), { once: true });
     link.appendChild(img);
     wrapper.appendChild(link);
@@ -195,6 +202,8 @@ let messageSearchQuery = '';
 let currentMessageSearchIndex = -1;
 let messageSearchMatches = [];
 let lastSearchConversationId = null;
+let stickToBottomAfterRender = false;
+let stickTimer = null;
 
 function normalize(value) {
   return String(value || '').trim().toLowerCase();
@@ -429,6 +438,7 @@ export function renderActiveConversation() {
   if (!id) {
     el.activeTitle.textContent = 'Select a user';
     if (el.activeMembers) el.activeMembers.textContent = '';
+    if (el.leaveGroupBtn) el.leaveGroupBtn.classList.add('is-hidden');
     el.messageHistory.innerHTML = '<div class="has-text-centered has-text-grey mt-5">Select a user from the sidebar to start messaging</div>';
     updateMessageSearchControls(0);
     return;
@@ -436,6 +446,7 @@ export function renderActiveConversation() {
 
   const convo = state.conversations.get(id);
   if (!convo) return;
+  if (el.leaveGroupBtn) el.leaveGroupBtn.classList.toggle('is-hidden', !convo.isGroup);
 
   if (convo.isGroup) {
     el.activeTitle.textContent = convo.name || 'Group Chat';
@@ -469,6 +480,11 @@ export function renderActiveConversation() {
       ? messageSearchMatches[currentMessageSearchIndex]
       : -1;
 
+  const box = el.messageHistory;
+  const stickToBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  stickToBottomAfterRender = stickToBottom;
+  clearTimeout(stickTimer);
+  stickTimer = setTimeout(() => { stickToBottomAfterRender = false; }, 3000);
   el.messageHistory.innerHTML = '';
 
   convo.messages.forEach((msg, messageIndex) => {
@@ -518,7 +534,10 @@ export function renderTypingIndicator() {
   if (!el.typingIndicator) return;
 
   const id = state.activeConversationId;
-  if (!id) return;
+  if (!id) {
+    el.typingIndicator.style.display = 'none';
+    return;
+  }
 
   const typingUsers = [];
   if (state.typingUsers && state.typingUsers.has(id)) {
@@ -570,6 +589,10 @@ export function renderInvites() {
   if (!el.inviteModalBody) return;
   el.inviteModalBody.innerHTML = '';
   const invites = Array.from(state.pendingInvites.values());
+  if (el.showInvitesBtn) {
+    el.showInvitesBtn.classList.toggle('is-hidden', invites.length === 0);
+    el.showInvitesBtn.textContent = `Pending invites (${invites.length})`;
+  }
 
   if (invites.length === 0) {
     el.inviteModalBody.innerHTML = '<p class="has-text-centered has-text-grey">No pending invitations.</p>';

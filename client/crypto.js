@@ -35,8 +35,10 @@ export async function encryptText(text, key) {
   return btoa(String.fromCharCode(...result));
 }
 
+export const DECRYPT_FAILED_TEXT = 'Unable to decrypt this message';
+
 export async function decryptText(base64Data, key) {
-  if (!key) return base64Data;
+  if (!key) return DECRYPT_FAILED_TEXT;
   
   try {
     const binaryString = atob(base64Data);
@@ -54,6 +56,7 @@ export async function decryptText(base64Data, key) {
     );
     return new TextDecoder().decode(decrypted);
   } catch (e) {
-    return base64Data; 
+    console.warn('Decryption failed:', e);
+    return DECRYPT_FAILED_TEXT;
   }
 }
